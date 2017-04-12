@@ -1,5 +1,6 @@
 from flypylib import fplobjdetect, fplmodels, fplnetwork, fplsynapses
 import numpy as np
+import matplotlib.pyplot as plt
 
 network    = fplnetwork.FplNetwork(fplmodels.baseline_model, 18, 7, 4)
 
@@ -31,3 +32,6 @@ gt         = fplsynapses.load_from_json(test_json)
 
 mm_test    = fplobjdetect.obj_pr_curve(
     out, gt, 27, np.arange(0.6,0.96,0.02) )
+
+plt.plot(mm_train['rr'],mm_train['pp'],'b.')
+plt.plot(mm_test[ 'rr'],mm_test[ 'pp'],'r.')
