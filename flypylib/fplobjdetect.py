@@ -131,7 +131,7 @@ def voxel2obj(pred, obj_min_dist, smoothing_sigma,
             break
 
         zz,yy,xx = np.unravel_index(inds[max_ind], pred.shape)
-        obj_pred.append([zz,yy,xx,max_val])
+        obj_pred.append([xx,yy,zz,max_val])
 
         is_valid[zz-obj_min_dist:zz+obj_min_dist+1,
                  yy-obj_min_dist:yy+obj_min_dist+1,
