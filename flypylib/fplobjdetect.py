@@ -70,7 +70,24 @@ def gen_batches(train_data, context_sz, batch_sz):
                 labels[example_idx,0]   = ll[xx_ii,yy_ii,zz_ii]
 
                 example_idx = example_idx + 1
+
+        # data augmentation
+        aug_rot = np.floor(4*np.random.rand(batch_sz))
+        aug_ref = np.floor(2*np.random.rand(batch_sz))
+        aug_fpz = np.floor(2*np.random.rand(batch_sz))
+        for ii in range(batch_sz):
+            if(aug_rot[ii]):
+                data[ii,:,:,:,0] = np.rot90(
+                    data[ii,:,:,:,0], aug_rot[ii], (1,2) )
+            if(aug_ref[ii]):
+                data[ii,:,:,:,0] = np.flip(
+                    data[ii,:,:,:,0],2)
+            if(aug_fpz[ii]):
+                data[ii,:,:,:,0] = np.flip(
+                    data[ii,:,:,:,0],0)
+
         yield data, labels
+
 
 def voxel2obj(pred, obj_min_dist, smoothing_sigma,
               volume_offset, buffer_sz):
