@@ -19,49 +19,59 @@ def gen_batches(train_data, context_sz, batch_sz):
     fit_generator
 
     Args:
-        train_data (tuple of str): first string gives filename for training image hdf5 file, and second string gives filename prefix for labels and mask hdf5 files
+        train_data (tuple of tuple of str): for each inner tuple, first string gives filename for training image hdf5 file, and second string gives filename prefix for labels and mask hdf5 files
         context_sz (tuple of int): tuple specifying size of training patches
         batch_sz   (int): number of examples in batch to yield
 
     """
-    im = h5py.File(train_data[0],'r')
-    ll = h5py.File('%slabels.h5' % train_data[1], 'r')
-    mm = h5py.File('%smask.h5'   % train_data[1], 'r')
-
-    im = im['/main'][:]
-    ll = ll['/main'][:]
-    mm = mm['/main'][:]
 
     n_per_class = round(batch_sz/2)
     context_rr  = tuple(round(cc/2) for cc in context_sz)
 
-    mm[:context_rr[0],:,:] = 0
-    mm[:,:context_rr[1],:] = 0
-    mm[:,:,:context_rr[2]] = 0
-    mm[-context_rr[0]:,:,:] = 0
-    mm[:,-context_rr[1]:,:] = 0
-    mm[:,:,-context_rr[2]:] = 0
+    ims  = []
+    lls  = []
+    mms  = []
+    locs = []
+    for tr in train_data:
+        ims.append(h5py.File(tr[0],'r')['/main'][:])
+        lls.append(h5py.File('%slabels.h5' % tr[1], 'r')['/main'][:])
+        mms.append(h5py.File('%smask.h5'   % tr[1], 'r')['/main'][:])
 
+        mms[-1][:context_rr[0],:,:] = 0
+        mms[-1][:,:context_rr[1],:] = 0
+        mms[-1][:,:,:context_rr[2]] = 0
+        mms[-1][-context_rr[0]:,:,:] = 0
+        mms[-1][:,-context_rr[1]:,:] = 0
+        mms[-1][:,:,-context_rr[2]:] = 0
+
+        locs_iter = [None, None]
+        for cc in range(2):
+            locs_iter[cc] = ( (lls[-1]==cc) & (mms[-1]==1) ).nonzero()
+        locs.append(locs_iter)
+
+    train_idx   = 0
+    n_train     = len(train_data)
     data        = np.zeros(
         (batch_sz, context_sz[0], context_sz[1], context_sz[2], 1),
         dtype='float32')
     labels      = np.zeros( (batch_sz, 1,1,1, 1), dtype='uint8' )
-    locs        = [None, None]
-    for cc in range(2):
-        locs[cc] = ( (ll==cc) & (mm==1) ).nonzero()
 
     while True:
+        im = ims[train_idx]
+        ll = lls[train_idx]
+        mm = mms[train_idx]
+
         example_idx = 0
         for cc in range(2):
-            n_possible = len(locs[cc][0])
+            n_possible = len(locs[train_idx][cc][0])
             locs_idx   = np.random.choice(n_possible,
                                           n_per_class, True)
 
             for ii in range(n_per_class):
                 locs_idx_ii = locs_idx[ii]
-                xx_ii       = locs[cc][0][locs_idx_ii]
-                yy_ii       = locs[cc][1][locs_idx_ii]
-                zz_ii       = locs[cc][2][locs_idx_ii]
+                xx_ii       = locs[train_idx][cc][0][locs_idx_ii]
+                yy_ii       = locs[train_idx][cc][1][locs_idx_ii]
+                zz_ii       = locs[train_idx][cc][2][locs_idx_ii]
 
                 data[example_idx,:,:,:,0] = im[
                     xx_ii-context_rr[0]:xx_ii+context_rr[0],
@@ -87,7 +97,7 @@ def gen_batches(train_data, context_sz, batch_sz):
                     data[ii,:,:,:,0],0)
 
         yield data, labels
-
+        train_idx = (train_idx + 1) % n_train
 
 def voxel2obj(pred, obj_min_dist, smoothing_sigma,
               volume_offset, buffer_sz):
@@ -343,3 +353,20 @@ def obj_pr_curve(predict, groundtruth, dist_thresh, thresholds):
                'pp'       : pp,
                'rr'       : rr }
     return result
+
+
+def aggregate_pr(results):
+    dim   = results[0]['num_tp'].shape
+    total = { 'num_tp'   : np.zeros(dim),
+              'tot_pred' : np.zeros(dim),
+              'tot_gt'   : np.zeros(dim) }
+
+    for rr in results:
+        total['num_tp']   += rr['num_tp']
+        total['tot_pred'] += rr['tot_pred']
+        total['tot_gt']   += rr['tot_gt']
+
+    total['pp'] = total['num_tp'] / total['tot_pred']
+    total['rr'] = total['num_tp'] / total['tot_gt']
+
+    return total
