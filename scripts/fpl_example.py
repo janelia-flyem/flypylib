@@ -2,7 +2,18 @@ from flypylib import fplobjdetect, fplmodels, fplnetwork, fplsynapses
 import numpy as np
 import matplotlib.pyplot as plt
 
-network    = fplnetwork.FplNetwork(fplmodels.baseline_model, 18, 7, 4)
+# choose a net architecture
+model_type = 'None' # None, resnet or unet
+
+is_mask = False
+
+if model_type == 'unet':
+    is_mask = True
+    network = fplnetwork.FplNetwork(fplmodels.unet_like, 18, 7, 4, model_type)
+elif model_type == 'resnet':
+    network = fplnetwork.FplNetwork(fplmodels.resnet_like, 18, 7, 4, model_type)
+else:
+    network = fplnetwork.FplNetwork(fplmodels.baseline_model, 18, 7, 4, model_type)
 
 base_dir   = '/groups/flyem/data/synapse_training/cx'
 train_data = []
@@ -11,7 +22,7 @@ for ii in (3,5,7):
         '%s/pb26_%02d_mn135_std48_image.h5'     % (base_dir,ii),
         '%s/pb26_%02d_ru7_ri15_mn135_std48_im_' % (base_dir,ii) ))
 generator  = fplobjdetect.gen_batches(
-    train_data, network.rf_size, 32)
+    train_data, network.rf_size, 32, is_mask)
 
 network.train(generator, 1000, 10)
 
@@ -27,7 +38,7 @@ for ii in range(3):
 
     mm_train.append(fplobjdetect.obj_pr_curve(
         out, gt, 27, np.arange(0.6,0.96,0.02) ))
-mm_train_agg = aggregate_pr(mm_train)
+mm_train_agg = fplobjdetect.aggregate_pr(mm_train)
 
 mm_test = []
 for ii in (4,9):
@@ -41,7 +52,11 @@ for ii in (4,9):
 
     mm_test.append(fplobjdetect.obj_pr_curve(
         out, gt, 27, np.arange(0.6,0.96,0.02) ))
-mm_test_agg = aggregate_pr(mm_test)
+mm_test_agg = fplobjdetect.aggregate_pr(mm_test)
 
-plt.plot(mm_train_agg['rr'],mm_train_agg['pp'],'b.')
-plt.plot(mm_test_agg[ 'rr'],mm_test_agg[ 'pp'],'r.')
+plt.plot(mm_train_agg['rr'],mm_train_agg['pp'],'b-')
+plt.plot(mm_test_agg[ 'rr'],mm_test_agg[ 'pp'],'r-')
+plt.xlabel('recall')
+plt.ylabel('precision')
+plt.legend(['train', 'test'], loc='lower left')
+plt.show()
