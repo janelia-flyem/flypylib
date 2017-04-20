@@ -12,7 +12,7 @@ import h5py
 from scipy import ndimage
 import pulp
 
-def gen_batches(train_data, context_sz, batch_sz):
+def gen_batches(train_data, context_sz, batch_sz, is_mask=False):
     """generator function that yields training batches
 
     extract training patches and labels for training with keras
@@ -54,7 +54,10 @@ def gen_batches(train_data, context_sz, batch_sz):
     data        = np.zeros(
         (batch_sz, context_sz[0], context_sz[1], context_sz[2], 1),
         dtype='float32')
-    labels      = np.zeros( (batch_sz, 1,1,1, 1), dtype='uint8' )
+    if (is_mask):
+        labels = np.zeros((batch_sz, 6, 6, 6, 1), dtype='uint8')
+    else:
+        labels = np.zeros( (batch_sz, 1, 1, 1, 1), dtype='uint8' )
 
     while True:
         im = ims[train_idx]
@@ -77,7 +80,16 @@ def gen_batches(train_data, context_sz, batch_sz):
                     xx_ii-context_rr[0]:xx_ii+context_rr[0],
                     yy_ii-context_rr[1]:yy_ii+context_rr[1],
                     zz_ii-context_rr[2]:zz_ii+context_rr[2]]
-                labels[example_idx,0]   = ll[xx_ii,yy_ii,zz_ii]
+                if (is_mask):
+                    labels[example_idx, :, :, :, 0] = ll[
+                        xx_ii-3:xx_ii+3,yy_ii-3:yy_ii+3,zz_ii-3:zz_ii+3]
+                    # get regions to be ignored
+                    tmp = mm[xx_ii-3:xx_ii+3,yy_ii-3:yy_ii+3,zz_ii-3:zz_ii+3]
+                    idx = (tmp == 0).nonzero()
+                    # set the labels of ignored regions to -1
+                    labels[idx] = -1
+                else:
+                    labels[example_idx,0]   = ll[xx_ii,yy_ii,zz_ii]
 
                 example_idx = example_idx + 1
 
@@ -89,12 +101,18 @@ def gen_batches(train_data, context_sz, batch_sz):
             if(aug_rot[ii]):
                 data[ii,:,:,:,0] = np.rot90(
                     data[ii,:,:,:,0], aug_rot[ii], (1,2) )
+                if (is_mask):
+                    labels[ii,:,:,:,0] = np.rot90(labels[ii,:,:,:,0], aug_rot[ii], (1,2))
             if(aug_ref[ii]):
                 data[ii,:,:,:,0] = np.flip(
                     data[ii,:,:,:,0],2)
+                if (is_mask):
+                    labels[ii,:,:,:,0] = np.flip(labels[ii,:,:,:,0], 2)
             if(aug_fpz[ii]):
                 data[ii,:,:,:,0] = np.flip(
                     data[ii,:,:,:,0],0)
+                if (is_mask):
+                    labels[ii,:,:,:,0] = np.flip([labels[ii,:,:,:,0]], 0)
 
         yield data, labels
         train_idx = (train_idx + 1) % n_train
