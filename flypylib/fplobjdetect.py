@@ -51,8 +51,9 @@ def gen_batches(train_data, context_sz, batch_sz, is_mask=False):
         locs.append(locs_iter)
 
         if (is_mask):
+            # set the label of the ignored regions to 2
             idx = (mms[-1] == 0).nonzero()
-            lls[-1][idx] = -1
+            lls[-1][idx] = 2
 
     train_idx   = 0
     n_train     = len(train_data)

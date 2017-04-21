@@ -6,13 +6,13 @@ import keras.backend as K
 import h5py
 import numpy as np
 
-def masked_binary_crossentropy(y_pred, y_true):
-    mask = K.cast(K.not_equal(y_true, -1), K.floatx())
+def masked_binary_crossentropy(y_true, y_pred):
+    mask = K.cast(K.not_equal(y_true, 2), K.floatx())
     return K.mean(K.binary_crossentropy(y_pred * mask,
                                         y_true * mask))
 
 def masked_accuracy(y_true, y_pred):
-    mask = K.cast(K.not_equal(y_true, -1), K.floatx())
+    mask = K.cast(K.not_equal(y_true, 2), K.floatx())
     return K.mean(K.equal(y_true * mask,
                           K.round(y_pred * mask)))
 
