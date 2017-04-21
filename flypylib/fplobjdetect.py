@@ -11,6 +11,7 @@ import numpy as np
 import h5py
 from scipy import ndimage
 import pulp
+import math
 
 def gen_batches(train_data, context_sz, batch_sz, is_mask=False):
     """generator function that yields training batches
@@ -49,6 +50,10 @@ def gen_batches(train_data, context_sz, batch_sz, is_mask=False):
             locs_iter[cc] = ( (lls[-1]==cc) & (mms[-1]==1) ).nonzero()
         locs.append(locs_iter)
 
+        if (is_mask):
+            idx = (lls[-1] == 0).nonzero()
+            mms[-1][idx] = -1
+
     train_idx   = 0
     n_train     = len(train_data)
     data        = np.zeros(
@@ -83,11 +88,6 @@ def gen_batches(train_data, context_sz, batch_sz, is_mask=False):
                 if (is_mask):
                     labels[example_idx, :, :, :, 0] = ll[
                         xx_ii-3:xx_ii+3,yy_ii-3:yy_ii+3,zz_ii-3:zz_ii+3]
-                    # get regions to be ignored
-                    tmp = mm[xx_ii-3:xx_ii+3,yy_ii-3:yy_ii+3,zz_ii-3:zz_ii+3]
-                    idx = (tmp == 0).nonzero()
-                    # set the labels of ignored regions to -1
-                    labels[idx] = -1
                 else:
                     labels[example_idx,0]   = ll[xx_ii,yy_ii,zz_ii]
 
