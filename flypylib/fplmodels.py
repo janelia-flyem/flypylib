@@ -141,37 +141,34 @@ def unet_like(in_sz=None):
     inputs = Input(shape=in_sz) # 18x18x18
 
     # down-sample
-    conv1 = Conv3D(32, (3, 3, 3), use_bias=False)(inputs) # 16x16x16
-    conv1 = _bn_relu(conv1)
-    conv1 = Conv3D(32, (1, 1, 1), use_bias=False)(conv1) # 16x16x16
-    conv1 = _bn_relu(conv1)
+    conv1 = Conv3D(32, (3, 3, 3), activation='relu', use_bias=False)(inputs) # 16x16x16
+    #conv1 = _bn_relu(conv1)
+    conv1 = Conv3D(32, (1, 1, 1), activation='relu', use_bias=False)(conv1) # 16x16x16
+    #conv1 = _bn_relu(conv1)
     pool1 = MaxPooling3D(pool_size=(2, 2, 2))(conv1) # 8x8x8
 
-    conv2 = Conv3D(64, (3, 3, 3), use_bias=False)(pool1) # 6x6x6
-    conv2 = _bn_relu(conv2)
-    conv2 = Conv3D(64, (1, 1, 1), use_bias=False)(conv2) # 6x6x6
-    conv1 = _bn_relu(conv1)
+    conv2 = Conv3D(64, (3, 3, 3), activation='relu', use_bias=False)(pool1) # 6x6x6
+    #conv2 = _bn_relu(conv2)
+    conv2 = Conv3D(64, (1, 1, 1), activation='relu', use_bias=False)(conv2) # 6x6x6
+    #conv2 = _bn_relu(conv2)
     pool2 = MaxPooling3D(pool_size=(2, 2, 2))(conv2) # 3x3x3
 
-    conv3 = Conv3D(128, (1, 1, 1), use_bias=False)(pool2) # 3x3x3
-    conv3 = _bn_relu(conv3)
+    conv3 = Conv3D(128, (1, 1, 1), activation='relu', use_bias=False)(pool2) # 3x3x3
+    #conv3 = _bn_relu(conv3)
 
     # up-sample
     up4 = concatenate([UpSampling3D(size=(2, 2, 2))(conv3), conv2]) # 6x6x6
-    #up4 = merge([UpSampling3D(size=(2, 2, 2))(conv3), conv2], mode='concat')
-    #up4 = UpSampling3D(size=(2, 2, 2))(conv3)
-    conv4 = Conv3D(64, (3, 3, 3), use_bias=False)(up4) # 4x4x4
-    conv4 = _bn_relu(conv4)
-    conv4 = Conv3D(64, (1, 1, 1), use_bias=False)(conv4) # 4x4x4
-    conv1 = _bn_relu(conv1)
+    conv4 = Conv3D(64, (3, 3, 3), activation='relu', use_bias=False)(up4) # 4x4x4
+    #conv4 = _bn_relu(conv4)
+    conv4 = Conv3D(64, (1, 1, 1), activation='relu', use_bias=False)(conv4) # 4x4x4
+    #conv4 = _bn_relu(conv4)
 
     crop_conv1 = Cropping3D(cropping=((4, 4), (4, 4), (4, 4)))(conv1)
     up5 = concatenate([UpSampling3D(size=(2, 2, 2))(conv4), crop_conv1]) # 8x8x8
-    #up5 = UpSampling3D(size=(2, 2, 2))(conv4)
-    conv5 = Conv3D(32, (3, 3, 3), use_bias=False)(up5) # 6x6x6
-    conv5 = _bn_relu(conv5)
-    conv5 = Conv3D(32, (1, 1, 1), use_bias=False)(conv5) # 6x6x6
-    conv1 = _bn_relu(conv1)
+    conv5 = Conv3D(32, (3, 3, 3), activation='relu', use_bias=False)(up5) # 6x6x6
+    #conv5 = _bn_relu(conv5)
+    conv5 = Conv3D(32, (1, 1, 1), activation='relu', use_bias=False)(conv5) # 6x6x6
+    #conv5 = _bn_relu(conv5)
 
     predictions = Conv3D(1, (1, 1, 1), activation='sigmoid', use_bias=False)(conv5) # 6x6x6
 
