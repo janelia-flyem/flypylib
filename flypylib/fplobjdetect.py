@@ -51,8 +51,8 @@ def gen_batches(train_data, context_sz, batch_sz, is_mask=False):
         locs.append(locs_iter)
 
         if (is_mask):
-            idx = (lls[-1] == 0).nonzero()
-            mms[-1][idx] = -1
+            idx = (mms[-1] == 0).nonzero()
+            lls[-1][idx] = -1
 
     train_idx   = 0
     n_train     = len(train_data)
