@@ -389,3 +389,119 @@ def aggregate_pr(results):
     total['rr'] = total['num_tp'] / total['tot_gt']
 
     return total
+
+def get_out_sz(in_sz):
+    """compute the output size of a unet-style net
+    
+    Args:
+        in_sz: size of an input subvolume
+    """
+    bottleneck_sz = int(math.floor(math.floor((in_sz - 2) / 2) - 2) / 2)
+    out_sz = (bottleneck_sz * 2 - 2) * 2 - 2
+    return out_sz
+
+def gen_volume(train_data, context_sz, batch_sz):
+    """generator function that yields training batches
+
+    extract training patches and labels for training with keras
+    fit_generator
+
+    Args:
+        train_data (tuple of tuple of str): for each inner tuple, first string gives filename for training image hdf5 file, and second string gives filename prefix for labels and mask hdf5 files
+        context_sz (tuple of int): tuple specifying size of training patches
+        batch_sz   (int): number of examples in batch to yield
+
+    """
+    #n_per_class = round(batch_sz/2)
+    context_rr  = tuple(round(cc/2) for cc in context_sz)
+
+    ims  = []
+    lls  = []
+    mms  = []
+    locs = []
+    for tr in train_data:
+        ims.append(h5py.File(tr[0],'r')['/main'][:])
+        lls.append(h5py.File('%slabels.h5' % tr[1], 'r')['/main'][:])
+        mms.append(h5py.File('%smask.h5'   % tr[1], 'r')['/main'][:])
+
+        mms[-1][:context_rr[0],:,:] = 0
+        mms[-1][:,:context_rr[1],:] = 0
+        mms[-1][:,:,:context_rr[2]] = 0
+        mms[-1][-context_rr[0]:,:,:] = 0
+        mms[-1][:,-context_rr[1]:,:] = 0
+        mms[-1][:,:,-context_rr[2]:] = 0
+
+        '''
+        locs_iter = [None, None]
+        for cc in range(2):
+            locs_iter[cc] = ( (lls[-1]==cc) & (mms[-1]==1) ).nonzero()
+        '''
+        locs_iter = ((lls[-1] == 1) & mms[-1] == 1).nonzero()
+        locs.append(locs_iter)
+        
+        # set the label of the ignored regions to 2
+        idx = (mms[-1] == 0).nonzero()
+        lls[-1][idx] = 2
+
+    train_idx   = 0
+    n_train     = len(train_data)
+    data        = np.zeros(
+        (batch_sz, context_sz[0], context_sz[1], context_sz[2], 1),
+        dtype='float32')
+    
+    out_sz = tuple(get_out_sz(cc) for cc in context_sz)
+    out_rr = tuple(round(cc/2) for cc in out_sz)
+    labels = np.zeros((batch_sz, out_sz[0], out_sz[1], out_sz[2], 1), dtype='uint8')
+    #masks = np.zeros((batch_sz, out_sz[0], out_sz[1], out_sz[2], 1), dtype='uint8')
+
+    while True:
+        im = ims[train_idx]
+        ll = lls[train_idx]
+        mm = mms[train_idx]
+
+        # random sampling
+        example_idx = 0
+        n_possible = len(locs[train_idx][0])
+        locs_idx = np.random.choice(n_possible, batch_sz, True)
+
+        for ii in range(batch_sz):
+            locs_idx_ii = locs_idx[ii]
+            xx_ii = locs[train_idx][0][locs_idx_ii]
+            yy_ii = locs[train_idx][1][locs_idx_ii]
+            zz_ii = locs[train_idx][2][locs_idx_ii]
+            data[example_idx,:,:,:,0] = im[
+                xx_ii-context_rr[0]:xx_ii+context_rr[0],
+                yy_ii-context_rr[1]:yy_ii+context_rr[1],
+                zz_ii-context_rr[2]:zz_ii+context_rr[2]]
+            labels[example_idx, :, :, :, 0] = ll[
+                xx_ii-out_rr[0]:xx_ii+out_rr[0],
+                yy_ii-out_rr[1]:yy_ii+out_rr[1],
+                zz_ii-out_rr[2]:zz_ii+out_rr[2]]
+            '''
+            masks[example_idx, :, :, :, 0] = mm[
+                xx_ii-out_rr[0]:xx_ii+out_rr[0],
+                yy_ii-out_rr[1]:yy_ii+out_rr[1],
+                zz_ii-out_rr[2]:zz_ii+out_rr[2]]
+            '''
+            example_idx = example_idx + 1
+        
+        # data augmentation
+        aug_rot = np.floor(4*np.random.rand(batch_sz))
+        aug_ref = np.floor(2*np.random.rand(batch_sz))
+        aug_fpz = np.floor(2*np.random.rand(batch_sz))
+        for ii in range(batch_sz):
+            if(aug_rot[ii]):
+                data[ii,:,:,:,0] = np.rot90(
+                    data[ii,:,:,:,0], aug_rot[ii], (1,2) )
+                labels[ii,:,:,:,0] = np.rot90(labels[ii,:,:,:,0], aug_rot[ii], (1,2))
+            if(aug_ref[ii]):
+                data[ii,:,:,:,0] = np.flip(
+                    data[ii,:,:,:,0],2)
+                labels[ii,:,:,:,0] = np.flip(labels[ii,:,:,:,0], 2)
+            if(aug_fpz[ii]):
+                data[ii,:,:,:,0] = np.flip(
+                    data[ii,:,:,:,0],0)
+                labels[ii,:,:,:,0] = np.flip([labels[ii,:,:,:,0]], 0)
+
+        yield data, labels
+        train_idx = (train_idx + 1) % n_train
