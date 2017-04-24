@@ -1,5 +1,4 @@
 from flypylib import fplutils
-from keras.models import Sequential
 from keras.models import Model
 from keras.layers import UpSampling3D
 import keras.backend as K
@@ -68,15 +67,15 @@ class FplNetwork:
 
         if(self.infer_network is None or \
            self.infer_network.input_shape[1:-1] != self.infer_sz):
-            if self.model_type == 'resnet':
+            if self.model_type == 'resnet' or \
+               self.model_type == 'None':
                 initial_model = self.model(self.infer_sz)
                 upsample_pred = UpSampling3D(self.rf_stride)(initial_model.output)
                 self.infer_network = Model(initial_model.input, upsample_pred)
             elif self.model_type == 'unet':
                 self.infer_network = self.model(self.infer_sz)
             else:
-                self.infer_network = self.model(self.infer_sz)
-                self.infer_network.add(UpSampling3D(self.rf_stride))
+                assert False, 'should not get here after refactoring'
 
             self.infer_network.set_weights(
                 self.train_network.get_weights())

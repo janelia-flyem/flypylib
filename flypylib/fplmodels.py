@@ -4,7 +4,6 @@ detection
 """
 
 from flypylib import fplutils
-from keras.models import Sequential
 from keras.models import Model
 from keras.layers import Dropout, Activation, Conv3D, MaxPooling3D, Cropping3D, UpSampling3D
 from keras.layers import BatchNormalization
@@ -19,30 +18,26 @@ def baseline_model(in_sz = None):
     in_sz = fplutils.to3d(in_sz)
     in_sz = in_sz + (1,)
 
-    model = Sequential()
+    inputs = Input(shape=in_sz)
 
-    model.add(Conv3D(32, (3,3,3), use_bias=False,
-                     input_shape=in_sz))
-    model.add(BatchNormalization())
-    model.add(Activation('relu'))
-    model.add(MaxPooling3D(pool_size=(2,2,2)))
+    conv1 = Conv3D(32, (3,3,3), use_bias=False)(inputs)
+    conv1 = _bn_relu(conv1)
+    pool1 = MaxPooling3D(pool_size=(2,2,2))(conv1)
 
-    model.add(Conv3D(32, (3,3,3), use_bias=False))
-    model.add(BatchNormalization())
-    model.add(Activation('relu'))
-    model.add(MaxPooling3D(pool_size=(2,2,2)))
+    conv2 = Conv3D(32, (3,3,3), use_bias=False)(pool1)
+    conv2 = _bn_relu(conv2)
+    pool2 = MaxPooling3D(pool_size=(2,2,2))(conv2)
 
-    model.add(Conv3D(32, (3,3,3), use_bias=False))
-    model.add(BatchNormalization())
-    model.add(Activation('relu'))
+    conv3 = Conv3D(32, (3,3,3), use_bias=False)(pool2)
+    conv3 = _bn_relu(conv3)
 
-    model.add(Conv3D(64, (1,1,1), use_bias=False))
-    model.add(BatchNormalization())
-    model.add(Activation('relu'))
-    model.add(Dropout(0.5))
+    full1 = Conv3D(64, (1,1,1), use_bias=False)(conv3)
+    full1 = _bn_relu(full1)
+    full1 = Dropout(0.5)(full1)
 
-    model.add(Conv3D(1, (1,1,1), activation='sigmoid'))
+    predictions = Conv3D(1, (1,1,1), activation='sigmoid')(full1)
 
+    model = Model(inputs=inputs, outputs=predictions)
     return model
 
 def vgg_like(in_sz = None):
@@ -51,41 +46,34 @@ def vgg_like(in_sz = None):
     in_sz = fplutils.to3d(in_sz)
     in_sz = in_sz + (1,)
 
-    model = Sequential()
+    inputs = Input(shape=in_sz)
 
-    model.add(Conv3D(48, (3,3,3), use_bias=False,
-                     input_shape=in_sz))
-    model.add(BatchNormalization())
-    model.add(Activation('relu'))
-    model.add(Conv3D(48, (1,1,1), use_bias=False))
-    model.add(BatchNormalization())
-    model.add(Activation('relu'))
-    model.add(MaxPooling3D(pool_size=(2,2,2)))
+    conv1 = Conv3D(48, (3,3,3), use_bias=False)(inputs)
+    conv1 = _bn_relu(conv1)
+    conv1 = Conv3D(48, (1,1,1), use_bias=False)(conv1)
+    conv1 = _bn_relu(conv1)
+    pool1 = MaxPooling3D(pool_size=(2,2,2))(conv1)
 
-    model.add(Conv3D(48, (3,3,3), use_bias=False))
-    model.add(BatchNormalization())
-    model.add(Activation('relu'))
-    model.add(Conv3D(48, (1,1,1), use_bias=False))
-    model.add(BatchNormalization())
-    model.add(Activation('relu'))
-    model.add(MaxPooling3D(pool_size=(2,2,2)))
+    conv2 = Conv3D(48, (3,3,3), use_bias=False)(pool1)
+    conv2 = _bn_relu(conv2)
+    conv2 = Conv3D(48, (1,1,1), use_bias=False)(conv2)
+    conv2 = _bn_relu(conv2)
+    pool2 = MaxPooling3D(pool_size=(2,2,2))(conv2)
 
-    model.add(Conv3D(48, (3,3,3), use_bias=False))
-    model.add(BatchNormalization())
-    model.add(Activation('relu'))
+    conv3 = Conv3D(48, (3,3,3), use_bias=False)(pool2)
+    conv3 = _bn_relu(conv3)
 
-    model.add(Conv3D(96, (1,1,1), use_bias=False))
-    model.add(BatchNormalization())
-    model.add(Activation('relu'))
-    model.add(Dropout(0.5))
+    full1 = Conv3D(96, (1,1,1), use_bias=False)(conv3)
+    full1 = _bn_relu(full1)
+    full1 = Dropout(0.5)(full1)
 
-    model.add(Conv3D(96, (1,1,1), use_bias=False))
-    model.add(BatchNormalization())
-    model.add(Activation('relu'))
-    model.add(Dropout(0.5))
+    full2 = Conv3D(96, (1,1,1), use_bias=False)(full1)
+    full2 = _bn_relu(full2)
+    full2 = Dropout(0.5)(full2)
 
-    model.add(Conv3D(1, (1,1,1), activation='sigmoid'))
+    predictions = Conv3D(1, (1,1,1), activation='sigmoid')(full2)
 
+    model = Model(inputs=inputs, outputs=predictions)
     return model
 
 def _bn_relu(input):
