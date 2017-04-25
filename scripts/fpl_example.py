@@ -48,8 +48,8 @@ for ii in (4,9):
         out, gt, 27, np.arange(0.6,0.96,0.02) ))
 mm_test_agg = fplobjdetect.aggregate_pr(mm_test)
 
-plt.plot(mm_train_agg['rr'],mm_train_agg['pp'],'b-')
-plt.plot(mm_test_agg[ 'rr'],mm_test_agg[ 'pp'],'r-')
+plt.plot(mm_train_agg.rr, mm_train_agg.pp, 'b-')
+plt.plot(mm_test_agg.rr,  mm_test_agg.pp,  'r-')
 plt.xlabel('recall')
 plt.ylabel('precision')
 plt.legend(['train', 'test'], loc='lower left')

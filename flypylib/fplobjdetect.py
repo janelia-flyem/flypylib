@@ -12,6 +12,10 @@ import h5py
 from scipy import ndimage
 import pulp
 import math
+from collections import namedtuple
+
+PR_Result = namedtuple(
+    'PR_Result', 'num_tp tot_pred tot_gt pp rr match')
 
 def gen_batches(train_data, context_sz, batch_sz, is_mask=False):
     """generator function that yields training batches
@@ -280,7 +284,7 @@ def obj_pr(predict_locs, groundtruth_locs, dist_thresh):
         dist_thresh      (float): distance threshold for counting a prediction and groundtruth location pair to be a match
 
     Returns:
-        dict: dictionary containing keys ``'pp'``: precision, ``'rr'``: recall, ``'num_tp'``: number of true positives, ``'tot_pred'``: number of predictions, and ``'tot_gt'``: number of groundtruth, and ``'match'``: as NxM numpy matrix indicating prediction/groundtruth matches
+        tuple: namedtuple with fields ``'pp'``: precision, ``'rr'``: recall, ``'num_tp'``: number of true positives, ``'tot_pred'``: number of predictions, and ``'tot_gt'``: number of groundtruth, and ``'match'``: as NxM numpy matrix indicating prediction/groundtruth matches
 
     """
 
@@ -296,13 +300,8 @@ def obj_pr(predict_locs, groundtruth_locs, dist_thresh):
         if(tot_gt   == 0):
             rr = 1
 
-        result = { 'match'    : None,
-                   'num_tp'   : 0,
-                   'tot_pred' : tot_pred,
-                   'tot_gt'   : tot_gt,
-                   'pp'       : pp,
-                   'rr'       : rr }
-        return result
+        return PR_Result(num_tp=0, tot_pred=tot_pred, tot_gt=tot_gt,
+                         pp=pp, rr=rr, match=None)
 
     pred     = predict_locs.reshape(     (-1, 1,3) )
     gt       = groundtruth_locs.reshape( ( 1,-1,3) )
@@ -312,13 +311,11 @@ def obj_pr(predict_locs, groundtruth_locs, dist_thresh):
 
     match    = obj_match(dists)
 
-    result   = { 'match'    : match,
-                 'num_tp'   : match.sum(),
-                 'tot_pred' : match.shape[0],
-                 'tot_gt'   : match.shape[1] }
-
-    result['pp'] = result['num_tp'] / result['tot_pred']
-    result['rr'] = result['num_tp'] / result['tot_gt']
+    num_tp   = match.sum()
+    result   = PR_Result(
+        num_tp=num_tp, tot_pred=match.shape[0], tot_gt=match.shape[1],
+        pp=num_tp/match.shape[0], rr=num_tp/match.shape[1],
+        match=match)
 
     return result
 
@@ -335,7 +332,7 @@ def obj_pr_curve(predict, groundtruth, dist_thresh, thresholds):
         thresholds  (array): T numpy array of thresholds to apply to confidence values, at which precision/recall will be computed
 
     Returns:
-        dict: dictionary containing keys ``'pp'``: precision, ``'rr'``: recall, ``'num_tp'``: number of true positives, ``'tot_pred'``: number of predictions, ``'tot_gt'``: number of groundtruth, with each value as T numpy array
+        tuple: namedtuple with fields ``'pp'``: precision, ``'rr'``: recall, ``'num_tp'``: number of true positives, ``'tot_pred'``: number of predictions, ``'tot_gt'``: number of groundtruth, with each value as T numpy array
 
     """
 
@@ -360,39 +357,38 @@ def obj_pr_curve(predict, groundtruth, dist_thresh, thresholds):
             predict_conf >= thresholds[ii],:]
         mm = obj_pr(predict_locs_iter, groundtruth_locs,
                     dist_thresh)
-        num_tp[  ii] = mm['num_tp']
-        tot_pred[ii] = mm['tot_pred']
-        tot_gt[  ii] = mm['tot_gt']
-        pp[      ii] = mm['pp']
-        rr[      ii] = mm['rr']
+        num_tp[  ii] = mm.num_tp
+        tot_pred[ii] = mm.tot_pred
+        tot_gt[  ii] = mm.tot_gt
+        pp[      ii] = mm.pp
+        rr[      ii] = mm.rr
 
-    result = { 'num_tp'   : num_tp,
-               'tot_pred' : tot_pred,
-               'tot_gt'   : tot_gt,
-               'pp'       : pp,
-               'rr'       : rr }
+    result = PR_Result(num_tp=num_tp, tot_pred=tot_pred, tot_gt=tot_gt,
+                       pp=pp, rr=rr, match=None)
     return result
 
 
 def aggregate_pr(results):
-    dim   = results[0]['num_tp'].shape
-    total = { 'num_tp'   : np.zeros(dim),
-              'tot_pred' : np.zeros(dim),
-              'tot_gt'   : np.zeros(dim) }
+    dim      = results[0].num_tp.shape
+    num_tp   = np.zeros(dim)
+    tot_pred = np.zeros(dim)
+    tot_gt   = np.zeros(dim)
 
     for rr in results:
-        total['num_tp']   += rr['num_tp']
-        total['tot_pred'] += rr['tot_pred']
-        total['tot_gt']   += rr['tot_gt']
+        num_tp   += rr.num_tp
+        tot_pred += rr.tot_pred
+        tot_gt   += rr.tot_gt
 
-    total['pp'] = total['num_tp'] / total['tot_pred']
-    total['rr'] = total['num_tp'] / total['tot_gt']
+    pp = num_tp / tot_pred
+    rr = num_tp / tot_gt
 
-    return total
+    result = PR_Result(num_tp=num_tp, tot_pred=tot_pred, tot_gt=tot_gt,
+                       pp=pp, rr=rr, match=None)
+    return result
 
 def get_out_sz(in_sz):
     """compute the output size of a unet-style net
-    
+
     Args:
         in_sz: size of an input subvolume
     """
@@ -438,7 +434,7 @@ def gen_volume(train_data, context_sz, batch_sz):
         '''
         locs_iter = ((lls[-1] == 1) & mms[-1] == 1).nonzero()
         locs.append(locs_iter)
-        
+
         # set the label of the ignored regions to 2
         idx = (mms[-1] == 0).nonzero()
         lls[-1][idx] = 2
@@ -448,7 +444,7 @@ def gen_volume(train_data, context_sz, batch_sz):
     data        = np.zeros(
         (batch_sz, context_sz[0], context_sz[1], context_sz[2], 1),
         dtype='float32')
-    
+
     out_sz = tuple(get_out_sz(cc) for cc in context_sz)
     out_rr = tuple(round(cc/2) for cc in out_sz)
     labels = np.zeros((batch_sz, out_sz[0], out_sz[1], out_sz[2], 1), dtype='uint8')
@@ -484,7 +480,7 @@ def gen_volume(train_data, context_sz, batch_sz):
                 zz_ii-out_rr[2]:zz_ii+out_rr[2]]
             '''
             example_idx = example_idx + 1
-        
+
         # data augmentation
         aug_rot = np.floor(4*np.random.rand(batch_sz))
         aug_ref = np.floor(2*np.random.rand(batch_sz))
