@@ -11,17 +11,16 @@ def load_from_json(fn):
     with open(fn) as json_file:
         data = json.load(json_file)
 
-    if(('data' in data.keys()) &
+    locs = []
+    conf = []
+    if(('data' in data.keys()) and len(data['data'])>0 and
        ('T-bar' in data['data'][0].keys())): # Raveler format
-        locs = []
-        conf = []
 
         for syn in data['data']:
             locs.append(syn['T-bar']['location'])
             conf.append(syn['T-bar']['confidence'])
 
-        locs  = np.asarray(locs)
-        conf  = np.asarray(conf)
-        tbars = { 'locs': locs, 'conf': conf }
-
+    locs  = np.asarray(locs)
+    conf  = np.asarray(conf)
+    tbars = { 'locs': locs, 'conf': conf }
     return tbars
