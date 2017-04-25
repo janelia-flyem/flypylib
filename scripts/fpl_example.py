@@ -3,17 +3,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # choose a net architecture
-model_type = 'None' # None, resnet or unet
+#   possible models: baseline_model, vgg_like, resnet_like, unet_like
+model = fplmodels.baseline_model;
 
-is_mask = False
-
-if model_type == 'unet':
-    is_mask = True
-    network = fplnetwork.FplNetwork(fplmodels.unet_like, 18, 7, 4, model_type)
-elif model_type == 'resnet':
-    network = fplnetwork.FplNetwork(fplmodels.resnet_like, 18, 7, 4, model_type)
-else:
-    network = fplnetwork.FplNetwork(fplmodels.baseline_model, 18, 7, 4, model_type)
+network = fplnetwork.FplNetwork(model)
+is_mask = (model==fplmodels.unet_like)
 
 base_dir   = '/groups/flyem/data/synapse_training/cx'
 train_data = []

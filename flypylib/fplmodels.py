@@ -9,7 +9,24 @@ from keras.layers import Dropout, Activation, Conv3D, MaxPooling3D, Cropping3D, 
 from keras.layers import BatchNormalization
 from keras.layers import Input
 from keras.layers import add, concatenate
+import keras.backend as K
 import numpy as np
+
+def masked_binary_crossentropy(y_true, y_pred):
+    mask = K.cast(K.not_equal(y_true, 2), K.floatx())
+    return K.mean(K.binary_crossentropy(y_pred * mask,
+                                        y_true * mask))
+
+def masked_accuracy(y_true, y_pred):
+    mask = K.cast(K.not_equal(y_true, 2), K.floatx())
+    return K.mean(K.equal(y_true * mask,
+                          K.round(y_pred * mask)))
+
+def _bn_relu(input):
+    """Helper to build a BN -> relu block
+    """
+    norm = BatchNormalization()(input)
+    return Activation("relu")(norm)
 
 def baseline_model(in_sz = None):
     """returns simple baseline model
@@ -38,7 +55,10 @@ def baseline_model(in_sz = None):
     predictions = Conv3D(1, (1,1,1), activation='sigmoid')(full1)
 
     model = Model(inputs=inputs, outputs=predictions)
-    return model
+    model.compile(loss      = 'binary_crossentropy',
+                  optimizer = 'adam',
+                  metrics   = ['accuracy'])
+    return model, (18, 7, 4)
 
 def vgg_like(in_sz = None):
     """returns standard model based on VGG architecture"""
@@ -74,13 +94,10 @@ def vgg_like(in_sz = None):
     predictions = Conv3D(1, (1,1,1), activation='sigmoid')(full2)
 
     model = Model(inputs=inputs, outputs=predictions)
-    return model
-
-def _bn_relu(input):
-    """Helper to build a BN -> relu block
-    """
-    norm = BatchNormalization()(input)
-    return Activation("relu")(norm)
+    model.compile(loss      = 'binary_crossentropy',
+                  optimizer = 'adam',
+                  metrics   = ['accuracy'])
+    return model, (18, 7, 4)
 
 def resnet_like(in_sz=None):
     """ returns a model that uses residual components
@@ -116,10 +133,12 @@ def resnet_like(in_sz=None):
     predictions = Conv3D(1, (1, 1, 1), activation='sigmoid')(conv3)
 
     model = Model(inputs=inputs, outputs=predictions)
+    model.compile(loss      = 'binary_crossentropy',
+                  optimizer = 'adam',
+                  metrics   = ['accuracy'])
+    return model, (18, 7, 4)
 
-    return model
-
-def unet_like(in_sz=None):
+def unet_like(in_sz=18):
     '''
     construct a u-net style network
     '''
@@ -161,4 +180,7 @@ def unet_like(in_sz=None):
     predictions = Conv3D(1, (1, 1, 1), activation='sigmoid', use_bias=False)(conv5) # 6x6x6
 
     model = Model(inputs=inputs, outputs=predictions)
-    return model
+    model.compile(loss=masked_binary_crossentropy,
+                  optimizer='adam',
+                  metrics=[masked_accuracy])
+    return model, (18, 6, 1)

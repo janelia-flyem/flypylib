@@ -1,19 +1,8 @@
 from flypylib import fplutils
 from keras.models import Model
 from keras.layers import UpSampling3D
-import keras.backend as K
 import h5py
 import numpy as np
-
-def masked_binary_crossentropy(y_true, y_pred):
-    mask = K.cast(K.not_equal(y_true, 2), K.floatx())
-    return K.mean(K.binary_crossentropy(y_pred * mask,
-                                        y_true * mask))
-
-def masked_accuracy(y_true, y_pred):
-    mask = K.cast(K.not_equal(y_true, 2), K.floatx())
-    return K.mean(K.equal(y_true * mask,
-                          K.round(y_pred * mask)))
 
 class FplNetwork:
     """deep learning/CNN class that wraps keras model
@@ -23,40 +12,25 @@ class FplNetwork:
 
     """
 
-    def __init__(self, model, rf_size, rf_offset, rf_stride, model_type):
-        self.model  = model
-        self.rf_size   = fplutils.to3d(rf_size)
-        self.rf_offset = fplutils.to3d(rf_offset)
-        self.rf_stride = fplutils.to3d(rf_stride)
-        self.model_type = model_type
+    def __init__(self, model):
+        self.model = model
 
-        self.train_network = None
+        self.train_network, rf_info = self.model()
+        self.train_network.summary()
+
+        self.rf_size   = fplutils.to3d(rf_info[0])
+        self.rf_offset = fplutils.to3d(rf_info[1])
+        self.rf_stride = fplutils.to3d(rf_info[2])
+
         self.infer_network = None
 
-        self.infer_sz      = (100,100,100)
+        self.infer_sz      = (102,102,102)
         self.infer_sz      = tuple([
             round( (ii-2*oo)/ss ) * ss + 2*oo for
             ii,oo,ss in zip(self.infer_sz,
                             self.rf_offset, self.rf_stride)])
 
     def train(self, generator, steps_per_epoch, epochs):
-        if self.train_network is None:
-            if (self.model_type == 'unet'):
-                self.train_network = self.model(self.rf_size)
-            else:
-                self.train_network = self.model(None)
-            self.train_network.summary()
-            if (self.model_type == 'unet'):
-                self.train_network.compile(
-                    loss=masked_binary_crossentropy,
-                    optimizer='adam',
-                    metrics=[masked_accuracy]
-                )
-            else:
-                self.train_network.compile(
-                    loss      = 'binary_crossentropy',
-                    optimizer = 'adam',
-                    metrics   = ['accuracy'])
         self.train_network.fit_generator(
             generator, steps_per_epoch, epochs)
 
@@ -67,15 +41,12 @@ class FplNetwork:
 
         if(self.infer_network is None or \
            self.infer_network.input_shape[1:-1] != self.infer_sz):
-            if self.model_type == 'resnet' or \
-               self.model_type == 'None':
-                initial_model = self.model(self.infer_sz)
+            if self.rf_stride != (1,1,1): # need to upsample
+                initial_model,_ = self.model(self.infer_sz)
                 upsample_pred = UpSampling3D(self.rf_stride)(initial_model.output)
                 self.infer_network = Model(initial_model.input, upsample_pred)
-            elif self.model_type == 'unet':
-                self.infer_network = self.model(self.infer_sz)
             else:
-                assert False, 'should not get here after refactoring'
+                self.infer_network,_ = self.model(self.infer_sz)
 
             self.infer_network.set_weights(
                 self.train_network.get_weights())
