@@ -34,22 +34,29 @@ class FplNetwork:
         self.train_network.fit_generator(
             generator, steps_per_epoch, epochs)
 
+        # update infer_network
+        if self.rf_stride != (1,1,1): # need to upsample
+            initial_model,_ = self.model(self.infer_sz)
+            upsample_pred   = UpSampling3D(self.rf_stride)(
+                initial_model.output)
+            self.infer_network = Model(initial_model.input,
+                                       upsample_pred)
+        else:
+            self.infer_network,_ = self.model(self.infer_sz)
+
+        self.infer_network.set_weights(
+            self.train_network.get_weights())
+
+
     def infer(self, image):
         if(isinstance(image, str)):
             image = h5py.File(image,'r')
             image = image['/main'][:]
 
-        if(self.infer_network is None or \
-           self.infer_network.input_shape[1:-1] != self.infer_sz):
-            if self.rf_stride != (1,1,1): # need to upsample
-                initial_model,_ = self.model(self.infer_sz)
-                upsample_pred = UpSampling3D(self.rf_stride)(initial_model.output)
-                self.infer_network = Model(initial_model.input, upsample_pred)
-            else:
-                self.infer_network,_ = self.model(self.infer_sz)
-
-            self.infer_network.set_weights(
-                self.train_network.get_weights())
+        assert self.infer_network is not None, \
+            'network has not been trained'
+        assert self.infer_network.input_shape[1:-1] == self.infer_sz, \
+            'network input shape does not match expected infer_sz'
 
         image_sz  = np.asarray(image.shape).reshape(3,1)
         infer_sz  = np.asarray(self.infer_sz).reshape(3,1)
