@@ -23,6 +23,7 @@ generator  = fplobjdetect.gen_batches(
     train_data, network.rf_size, 32, is_mask)
 
 network.train(generator, 1000, 10)
+network.make_parallel(4)
 
 train_json = []
 for ii in train_idx:
@@ -39,19 +40,14 @@ for ii in range(len(train_data)):
 mm_train_agg = fplobjdetect.aggregate_pr(mm_train)
 
 test_dir   = '%s/cx1_0_1' % base_dir
-mm_test = []
+test_data  = []
 for ii in test_idx:
-    test_data  = '%s/cx1_%03d_mn135_std48_image.h5' % (test_dir,ii)
+    test_image = '%s/cx1_%03d_mn135_std48_image.h5' % (test_dir,ii)
     test_json  = '%s/cx1_%03d_synapses.json'        % (test_dir,ii)
-
-    pred       = network.infer(test_data)
-    out        = fplobjdetect.voxel2obj(pred, 27, 5, None, 5)
-
-    gt         = fplsynapses.load_from_json(test_json)
-
-    mm_test.append(fplobjdetect.obj_pr_curve(
-        out, gt, 27, np.arange(0.6,0.96,0.02) ))
-mm_test_agg = fplobjdetect.aggregate_pr(mm_test)
+    test_data.append( [test_image, test_json] )
+mm_test_agg, mm_test = fplobjdetect.evaluate_substacks(
+    network, test_data, np.arange(0.6,0.96,0.02),
+    obj_min_dist=27, smoothing_sigma=5, volume_offset=None, buffer_sz=5)
 
 plt.plot(mm_train_agg.rr, mm_train_agg.pp, 'b-')
 plt.plot(mm_test_agg.rr,  mm_test_agg.pp,  'r-')

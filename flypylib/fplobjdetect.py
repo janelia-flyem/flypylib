@@ -6,12 +6,13 @@
 
 """
 
-from flypylib import fplutils
+from flypylib import fplutils, fplsynapses
 import numpy as np
 import h5py
 from scipy import ndimage
 import pulp
 import math
+import multiprocessing
 from collections import namedtuple
 
 PR_Result = namedtuple(
@@ -385,6 +386,40 @@ def aggregate_pr(results):
     result = PR_Result(num_tp=num_tp, tot_pred=tot_pred, tot_gt=tot_gt,
                        pp=pp, rr=rr, match=None)
     return result
+
+def _evaluate_substacks_worker(pred, obj_min_dist, smoothing_sigma,
+                               volume_offset, buffer_sz,
+                               json_fn, thds, qq):
+    out  = voxel2obj(pred, obj_min_dist, smoothing_sigma,
+                     volume_offset, buffer_sz)
+    gt   = fplsynapses.load_from_json(json_fn)
+    rr   = obj_pr_curve(out, gt, obj_min_dist, thds)
+
+    qq.put({json_fn: rr})
+
+def evaluate_substacks(network, substacks, thds,
+                       obj_min_dist=27, smoothing_sigma=5,
+                       volume_offset=None, buffer_sz=5):
+    qq  = multiprocessing.Queue()
+    pps = []
+    oo  = {}
+    for ss in substacks:
+        pred = network.infer(ss[0])
+        pp = multiprocessing.Process(
+            target=_evaluate_substacks_worker,
+            args=(pred, obj_min_dist, smoothing_sigma,
+                  volume_offset, buffer_sz, ss[1], thds, qq))
+        pps.append(pp)
+        pp.start()
+
+    for pp in pps:
+        oo.update(qq.get())
+
+    results = []
+    for ss in substacks:
+        results.append(oo[ss[1]])
+
+    return aggregate_pr(results), results
 
 def get_out_sz(in_sz):
     """compute the output size of a unet-style net
