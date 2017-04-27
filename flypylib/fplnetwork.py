@@ -1,4 +1,4 @@
-from flypylib import fplutils
+from flypylib import fplutils, multi_gpu
 from keras.models import Model
 from keras.layers import UpSampling3D
 import h5py
@@ -23,6 +23,7 @@ class FplNetwork:
         self.rf_stride = fplutils.to3d(rf_info[2])
 
         self.infer_network = None
+        self.n_gpu         = 1
 
         self.infer_sz      = (102,102,102)
         self.infer_sz      = tuple([
@@ -30,11 +31,7 @@ class FplNetwork:
             ii,oo,ss in zip(self.infer_sz,
                             self.rf_offset, self.rf_stride)])
 
-    def train(self, generator, steps_per_epoch, epochs):
-        self.train_network.fit_generator(
-            generator, steps_per_epoch, epochs)
-
-        # update infer_network
+    def _set_infer(self):
         if self.rf_stride != (1,1,1): # need to upsample
             initial_model,_ = self.model(self.infer_sz)
             upsample_pred   = UpSampling3D(self.rf_stride)(
@@ -47,6 +44,16 @@ class FplNetwork:
         self.infer_network.set_weights(
             self.train_network.get_weights())
 
+    def train(self, generator, steps_per_epoch, epochs):
+        self.train_network.fit_generator(
+            generator, steps_per_epoch, epochs)
+        self._set_infer()
+
+    def make_parallel(self, n_gpu):
+        self._set_infer()
+        self.infer_network = multi_gpu.make_parallel(
+            self.infer_network, n_gpu)
+        self.n_gpu = n_gpu
 
     def infer(self, image):
         if(isinstance(image, str)):
@@ -85,7 +92,7 @@ class FplNetwork:
                      start_idx[2,ii]:end_idx[2,ii]]
 
         pred_batch = self.infer_network.predict(
-            data_batch, batch_size=1)
+            data_batch, batch_size=self.n_gpu)
 
         pred = np.zeros( image.shape, dtype='float32' )
 

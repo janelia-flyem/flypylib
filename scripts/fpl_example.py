@@ -20,6 +20,9 @@ generator  = fplobjdetect.gen_batches(
 
 network.train(generator, 1000, 10)
 
+# parallelize inference across 4 gpus
+network.make_parallel(4)
+
 train_json = []
 for ii in (3,5,7):
     train_json.append('%s/pb26_%02d_synapses.json' % (base_dir,ii))
