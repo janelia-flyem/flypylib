@@ -211,7 +211,7 @@ def voxel2obj(pred, obj_min_dist, smoothing_sigma,
                 'conf': obj_pred[:,3] }
     return obj_out
 
-def obj_match(dists):
+def obj_match(dists, allow_mult=False):
     """compute object matching
 
     sets up and solves an integer program for matching predicted
@@ -249,11 +249,12 @@ def obj_match(dists):
     match += pulp.lpSum([match_costs[ii]*match_vars[ii] for
                          ii in match_names]), 'obj match cost'
 
-    for ii in range(n_pred):
-        if match_const_pred[ii]:
-            match += pulp.lpSum(match_vars[jj] for
-                                jj in match_const_pred[ii]
-                                ) <= 1, 'pred %d' % ii
+    if not allow_mult:
+        for ii in range(n_pred):
+            if match_const_pred[ii]:
+                match += pulp.lpSum(match_vars[jj] for
+                                    jj in match_const_pred[ii]
+                                    ) <= 1, 'pred %d' % ii
 
     for ii in range(n_gt):
         if match_const_gt[ii]:
@@ -273,7 +274,7 @@ def obj_match(dists):
 
     return obj_matches
 
-def obj_pr(predict_locs, groundtruth_locs, dist_thresh):
+def obj_pr(predict_locs, groundtruth_locs, dist_thresh, allow_mult=False):
     """compute precision/recall
 
     given predicted and groundtruth object locations, computes
@@ -310,7 +311,7 @@ def obj_pr(predict_locs, groundtruth_locs, dist_thresh):
     dists    = np.sqrt( ((pred-gt)**2).sum(axis=2) )
     dists   -= dist_thresh
 
-    match    = obj_match(dists)
+    match    = obj_match(dists, allow_mult=allow_mult)
 
     num_tp   = match.sum()
     result   = PR_Result(
@@ -320,7 +321,8 @@ def obj_pr(predict_locs, groundtruth_locs, dist_thresh):
 
     return result
 
-def obj_pr_curve(predict, groundtruth, dist_thresh, thresholds):
+def obj_pr_curve(predict, groundtruth, dist_thresh, thresholds,
+                 allow_mult=False):
     """compute precision/recall curve
 
     given predicted and groundtruth object locations, computes
@@ -357,7 +359,7 @@ def obj_pr_curve(predict, groundtruth, dist_thresh, thresholds):
         predict_locs_iter = predict_locs[
             predict_conf >= thresholds[ii],:]
         mm = obj_pr(predict_locs_iter, groundtruth_locs,
-                    dist_thresh)
+                    dist_thresh, allow_mult=allow_mult)
         num_tp[  ii] = mm.num_tp
         tot_pred[ii] = mm.tot_pred
         tot_gt[  ii] = mm.tot_gt
@@ -389,17 +391,17 @@ def aggregate_pr(results):
 
 def _evaluate_substacks_worker(pred, obj_min_dist, smoothing_sigma,
                                volume_offset, buffer_sz,
-                               json_fn, thds, qq):
+                               json_fn, thds, allow_mult, qq):
     out  = voxel2obj(pred, obj_min_dist, smoothing_sigma,
                      volume_offset, buffer_sz)
     gt   = fplsynapses.load_from_json(json_fn)
-    rr   = obj_pr_curve(out, gt, obj_min_dist, thds)
+    rr   = obj_pr_curve(out, gt, obj_min_dist, thds, allow_mult=allow_mult)
 
     qq.put({json_fn: rr})
 
 def evaluate_substacks(network, substacks, thds,
                        obj_min_dist=27, smoothing_sigma=5,
-                       volume_offset=None, buffer_sz=5):
+                       volume_offset=None, buffer_sz=5, allow_mult=False):
     qq  = multiprocessing.Queue()
     pps = []
     oo  = {}
@@ -408,7 +410,7 @@ def evaluate_substacks(network, substacks, thds,
         pp = multiprocessing.Process(
             target=_evaluate_substacks_worker,
             args=(pred, obj_min_dist, smoothing_sigma,
-                  volume_offset, buffer_sz, ss[1], thds, qq))
+                  volume_offset, buffer_sz, ss[1], thds, allow_mult, qq))
         pps.append(pp)
         pp.start()
 
