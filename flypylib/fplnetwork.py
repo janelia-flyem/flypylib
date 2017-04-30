@@ -1,8 +1,20 @@
 from flypylib import fplutils, multi_gpu
-from keras.models import Model
+from keras.models import Model, load_model
 from keras.layers import UpSampling3D
 import h5py
 import numpy as np
+import pickle
+
+def load_network(filepath):
+    fn = open(filepath,'rb')
+    network = pickle.load(fn)
+    fn.close()
+
+    keras_filepath = filepath + '.keras.h5'
+    network.train_network = load_model(keras_filepath)
+    network._set_infer()
+
+    return network
 
 class FplNetwork:
     """deep learning/CNN class that wraps keras model
@@ -30,6 +42,20 @@ class FplNetwork:
             round( (ii-2*oo)/ss ) * ss + 2*oo for
             ii,oo,ss in zip(self.infer_sz,
                             self.rf_offset, self.rf_stride)])
+
+    def save(self, filepath):
+        keras_filepath = filepath + '.keras.h5'
+        self.train_network.save(keras_filepath)
+
+        self.train_network = None
+        self.infer_network = None
+
+        fn = open(filepath,'wb')
+        pickle.dump(self, fn)
+        fn.close()
+
+        self.train_network = load_model(keras_filepath)
+        self._set_infer()
 
     def _set_infer(self):
         if self.rf_stride != (1,1,1): # need to upsample
@@ -81,8 +107,10 @@ class FplNetwork:
         idx_sz    = end_idx - start_idx
         n_idx     = locs.shape[1]
 
+        n_idx_batch = int(np.ceil(n_idx / self.n_gpu)*self.n_gpu)
+
         data_batch = np.zeros(
-            (n_idx,infer_sz[0,0],infer_sz[1,0],infer_sz[2,0],1))
+            (n_idx_batch,infer_sz[0,0],infer_sz[1,0],infer_sz[2,0],1))
 
         for ii in range(n_idx):
             data_batch[ii,:idx_sz[0,ii],:idx_sz[1,ii],:idx_sz[2,ii],
