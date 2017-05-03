@@ -75,7 +75,6 @@ def gen_batches(train_data, context_sz, batch_sz, is_mask=False):
         ll = lls[train_idx]
         mm = mms[train_idx]
 
-        example_idx = 0
         for cc in range(2):
             n_possible = len(locs[train_idx][cc][0])
             locs_idx   = np.random.choice(n_possible,
@@ -87,6 +86,7 @@ def gen_batches(train_data, context_sz, batch_sz, is_mask=False):
                 yy_ii       = locs[train_idx][cc][1][locs_idx_ii]
                 zz_ii       = locs[train_idx][cc][2][locs_idx_ii]
 
+                example_idx = ii*2+cc
                 data[example_idx,:,:,:,0] = im[
                     xx_ii-context_rr[0]:xx_ii+context_rr[0],
                     yy_ii-context_rr[1]:yy_ii+context_rr[1],
@@ -96,8 +96,6 @@ def gen_batches(train_data, context_sz, batch_sz, is_mask=False):
                         xx_ii-3:xx_ii+3,yy_ii-3:yy_ii+3,zz_ii-3:zz_ii+3]
                 else:
                     labels[example_idx,0]   = ll[xx_ii,yy_ii,zz_ii]
-
-                example_idx = example_idx + 1
 
         # data augmentation
         aug_rot = np.floor(4*np.random.rand(batch_sz))
