@@ -211,7 +211,7 @@ def voxel2obj(pred, obj_min_dist, smoothing_sigma,
                 'conf': obj_pred[:,3] }
     return obj_out
 
-def obj_match(dists, allow_mult=False):
+def obj_match(dists):
     """compute object matching
 
     sets up and solves an integer program for matching predicted
@@ -249,12 +249,11 @@ def obj_match(dists, allow_mult=False):
     match += pulp.lpSum([match_costs[ii]*match_vars[ii] for
                          ii in match_names]), 'obj match cost'
 
-    if not allow_mult:
-        for ii in range(n_pred):
-            if match_const_pred[ii]:
-                match += pulp.lpSum(match_vars[jj] for
-                                    jj in match_const_pred[ii]
-                                    ) <= 1, 'pred %d' % ii
+    for ii in range(n_pred):
+        if match_const_pred[ii]:
+            match += pulp.lpSum(match_vars[jj] for
+                                jj in match_const_pred[ii]
+                                ) <= 1, 'pred %d' % ii
 
     for ii in range(n_gt):
         if match_const_gt[ii]:
@@ -274,7 +273,7 @@ def obj_match(dists, allow_mult=False):
 
     return obj_matches
 
-def obj_pr(predict_locs, groundtruth_locs, dist_thresh, allow_mult=False):
+def obj_pr(predict_locs, groundtruth_locs, dist_thresh):
     """compute precision/recall
 
     given predicted and groundtruth object locations, computes
@@ -311,7 +310,7 @@ def obj_pr(predict_locs, groundtruth_locs, dist_thresh, allow_mult=False):
     dists    = np.sqrt( ((pred-gt)**2).sum(axis=2) )
     dists   -= dist_thresh
 
-    match    = obj_match(dists, allow_mult=allow_mult)
+    match    = obj_match(dists)
 
     num_tp   = match.sum()
     result   = PR_Result(
@@ -321,8 +320,7 @@ def obj_pr(predict_locs, groundtruth_locs, dist_thresh, allow_mult=False):
 
     return result
 
-def obj_pr_curve(predict, groundtruth, dist_thresh, thresholds,
-                 allow_mult=False):
+def obj_pr_curve(predict, groundtruth, dist_thresh, thresholds):
     """compute precision/recall curve
 
     given predicted and groundtruth object locations, computes
@@ -359,7 +357,7 @@ def obj_pr_curve(predict, groundtruth, dist_thresh, thresholds,
         predict_locs_iter = predict_locs[
             predict_conf >= thresholds[ii],:]
         mm = obj_pr(predict_locs_iter, groundtruth_locs,
-                    dist_thresh, allow_mult=allow_mult)
+                    dist_thresh)
         num_tp[  ii] = mm.num_tp
         tot_pred[ii] = mm.tot_pred
         tot_gt[  ii] = mm.tot_gt
@@ -382,8 +380,8 @@ def aggregate_pr(results):
         tot_pred += rr.tot_pred
         tot_gt   += rr.tot_gt
 
-    pp = num_tp / tot_pred
-    rr = num_tp / tot_gt
+    pp = num_tp / (tot_pred + 10e-8)
+    rr = num_tp / (tot_gt + 10e-8)
 
     result = PR_Result(num_tp=num_tp, tot_pred=tot_pred, tot_gt=tot_gt,
                        pp=pp, rr=rr, match=None)
@@ -391,17 +389,17 @@ def aggregate_pr(results):
 
 def _evaluate_substacks_worker(pred, obj_min_dist, smoothing_sigma,
                                volume_offset, buffer_sz,
-                               json_fn, thds, allow_mult, qq):
+                               json_fn, thds, qq):
     out  = voxel2obj(pred, obj_min_dist, smoothing_sigma,
                      volume_offset, buffer_sz)
     gt   = fplsynapses.load_from_json(json_fn)
-    rr   = obj_pr_curve(out, gt, obj_min_dist, thds, allow_mult=allow_mult)
+    rr   = obj_pr_curve(out, gt, obj_min_dist, thds)
 
     qq.put({json_fn: rr})
 
 def evaluate_substacks(network, substacks, thds,
                        obj_min_dist=27, smoothing_sigma=5,
-                       volume_offset=None, buffer_sz=5, allow_mult=False):
+                       volume_offset=None, buffer_sz=5):
     qq  = multiprocessing.Queue()
     pps = []
     oo  = {}
@@ -410,7 +408,7 @@ def evaluate_substacks(network, substacks, thds,
         pp = multiprocessing.Process(
             target=_evaluate_substacks_worker,
             args=(pred, obj_min_dist, smoothing_sigma,
-                  volume_offset, buffer_sz, ss[1], thds, allow_mult, qq))
+                  volume_offset, buffer_sz, ss[1], thds, qq))
         pps.append(pp)
         pp.start()
 
@@ -433,7 +431,7 @@ def get_out_sz(in_sz):
     out_sz = (bottleneck_sz * 2 - 2) * 2 - 2
     return out_sz
 
-def gen_volume(train_data, context_sz, batch_sz):
+def gen_volume(train_data, context_sz, batch_sz, ratio):
     """generator function that yields training batches
 
     extract training patches and labels for training with keras
@@ -443,6 +441,7 @@ def gen_volume(train_data, context_sz, batch_sz):
         train_data (tuple of tuple of str): for each inner tuple, first string gives filename for training image hdf5 file, and second string gives filename prefix for labels and mask hdf5 files
         context_sz (tuple of int): tuple specifying size of training patches
         batch_sz   (int): number of examples in batch to yield
+        ratio      (float): ratio of negative samples
 
     """
     #n_per_class = round(batch_sz/2)
@@ -464,13 +463,15 @@ def gen_volume(train_data, context_sz, batch_sz):
         mms[-1][:,-context_rr[1]:,:] = 0
         mms[-1][:,:,-context_rr[2]:] = 0
 
-        '''
         locs_iter = [None, None]
         for cc in range(2):
             locs_iter[cc] = ( (lls[-1]==cc) & (mms[-1]==1) ).nonzero()
+        locs.append(locs_iter)
+
         '''
         locs_iter = ((lls[-1] == 1) & mms[-1] == 1).nonzero()
         locs.append(locs_iter)
+        '''
 
         # set the label of the ignored regions to 2
         idx = (mms[-1] == 0).nonzero()
@@ -494,14 +495,21 @@ def gen_volume(train_data, context_sz, batch_sz):
 
         # random sampling
         example_idx = 0
-        n_possible = len(locs[train_idx][0])
+        label_idx = 1 # positive samples
+        if np.random.uniform(0,1) < ratio:
+            label_idx = 0 # negative samples
+
+        n_possible = len(locs[train_idx][label_idx][0])
+        if (n_possible == 0):
+            label_idx = 0
+            n_possible = len(locs[train_idx][label_idx][0])
         locs_idx = np.random.choice(n_possible, batch_sz, True)
 
         for ii in range(batch_sz):
             locs_idx_ii = locs_idx[ii]
-            xx_ii = locs[train_idx][0][locs_idx_ii]
-            yy_ii = locs[train_idx][1][locs_idx_ii]
-            zz_ii = locs[train_idx][2][locs_idx_ii]
+            xx_ii = locs[train_idx][label_idx][0][locs_idx_ii]
+            yy_ii = locs[train_idx][label_idx][1][locs_idx_ii]
+            zz_ii = locs[train_idx][label_idx][2][locs_idx_ii]
             data[example_idx,:,:,:,0] = im[
                 xx_ii-context_rr[0]:xx_ii+context_rr[0],
                 yy_ii-context_rr[1]:yy_ii+context_rr[1],
@@ -526,15 +534,18 @@ def gen_volume(train_data, context_sz, batch_sz):
             if(aug_rot[ii]):
                 data[ii,:,:,:,0] = np.rot90(
                     data[ii,:,:,:,0], aug_rot[ii], (1,2) )
-                labels[ii,:,:,:,0] = np.rot90(labels[ii,:,:,:,0], aug_rot[ii], (1,2))
+                labels[ii,:,:,:,0] = np.rot90(
+                    labels[ii,:,:,:,0], aug_rot[ii], (1,2))
             if(aug_ref[ii]):
                 data[ii,:,:,:,0] = np.flip(
                     data[ii,:,:,:,0],2)
-                labels[ii,:,:,:,0] = np.flip(labels[ii,:,:,:,0], 2)
+                labels[ii,:,:,:,0] = np.flip(
+                    labels[ii,:,:,:,0], 2)
             if(aug_fpz[ii]):
                 data[ii,:,:,:,0] = np.flip(
                     data[ii,:,:,:,0],0)
-                labels[ii,:,:,:,0] = np.flip([labels[ii,:,:,:,0]], 0)
+                labels[ii,:,:,:,0] = np.flip(
+                    [labels[ii,:,:,:,0]], 0)
 
         yield data, labels
         train_idx = (train_idx + 1) % n_train
