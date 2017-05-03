@@ -11,7 +11,8 @@ def load_network(filepath):
     fn.close()
 
     keras_filepath = filepath + '.keras.h5'
-    network.train_network = load_model(keras_filepath)
+    network.train_single  = load_model(keras_filepath)
+    network.train_network = network.train_single
     network._set_infer()
 
     return network
@@ -27,8 +28,9 @@ class FplNetwork:
     def __init__(self, model):
         self.model = model
 
-        self.train_network, rf_info = self.model()
+        self.train_network, rf_info, infer_sz, compile_args = self.model()
         self.train_network.summary()
+        self.train_single = self.train_network
 
         self.rf_size   = fplutils.to3d(rf_info[0])
         self.rf_offset = fplutils.to3d(rf_info[1])
@@ -37,16 +39,24 @@ class FplNetwork:
         self.infer_network = None
         self.n_gpu         = 1
 
-        self.infer_sz      = (102,102,102)
-        self.infer_sz      = tuple([
-            round( (ii-2*oo)/ss ) * ss + 2*oo for
-            ii,oo,ss in zip(self.infer_sz,
-                            self.rf_offset, self.rf_stride)])
+        self.infer_sz      = fplutils.to3d(infer_sz)
+        # self.infer_sz      = tuple([
+        #     round( (ii-2*oo)/ss ) * ss + 2*oo for
+        #     ii,oo,ss in zip(self.infer_sz,
+        #                     self.rf_offset, self.rf_stride)])
+
+        if compile_args is None:
+            compile_args = {'loss': 'binary_crossentropy',
+                            'optimizer': 'adam',
+                            'metrics': ['accuracy']}
+        self.train_network.compile(**compile_args)
+        self.compile_args = compile_args
 
     def save(self, filepath):
         keras_filepath = filepath + '.keras.h5'
-        self.train_network.save(keras_filepath)
+        self.train_single.save(keras_filepath)
 
+        self.train_single  = None
         self.train_network = None
         self.infer_network = None
 
@@ -54,28 +64,35 @@ class FplNetwork:
         pickle.dump(self, fn)
         fn.close()
 
-        self.train_network = load_model(keras_filepath)
+        self.train_single  = load_model(keras_filepath)
+        self.train_network = self.train_single
         self._set_infer()
 
     def _set_infer(self):
         if self.rf_stride != (1,1,1): # need to upsample
-            initial_model,_ = self.model(self.infer_sz)
+            initial_model,_,_,_ = self.model(self.infer_sz)
             upsample_pred   = UpSampling3D(self.rf_stride)(
                 initial_model.output)
             self.infer_network = Model(initial_model.input,
                                        upsample_pred)
         else:
-            self.infer_network,_ = self.model(self.infer_sz)
+            self.infer_network,_,_,_ = self.model(self.infer_sz)
 
         self.infer_network.set_weights(
-            self.train_network.get_weights())
+            self.train_single.get_weights())
 
     def train(self, generator, steps_per_epoch, epochs):
         self.train_network.fit_generator(
             generator, steps_per_epoch, epochs)
         self._set_infer()
 
-    def make_parallel(self, n_gpu):
+    def make_train_parallel(self, n_gpu, batch_size, input_shape):
+        input_shape = list(fplutils.to3d(input_shape)) + [1,]
+        self.train_network = multi_gpu.make_parallel(
+            self.train_single, n_gpu, batch_size, input_shape)
+        self.train_network.compile(**self.compile_args)
+
+    def make_infer_parallel(self, n_gpu):
         self._set_infer()
         self.infer_network = multi_gpu.make_parallel(
             self.infer_network, n_gpu)

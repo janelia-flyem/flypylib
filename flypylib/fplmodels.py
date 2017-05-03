@@ -79,10 +79,7 @@ def baseline_model(in_sz = None):
     predictions = Conv3D(1, (1,1,1), activation='sigmoid')(full1)
 
     model = Model(inputs=inputs, outputs=predictions)
-    model.compile(loss      = 'binary_crossentropy',
-                  optimizer = 'adam',
-                  metrics   = ['accuracy'])
-    return model, (18, 7, 4)
+    return model, (18, 7, 4), 102, None
 
 def vgg_like(in_sz = None):
     """returns standard model based on VGG architecture"""
@@ -118,10 +115,43 @@ def vgg_like(in_sz = None):
     predictions = Conv3D(1, (1,1,1), activation='sigmoid')(full2)
 
     model = Model(inputs=inputs, outputs=predictions)
-    model.compile(loss      = 'binary_crossentropy',
-                  optimizer = 'adam',
-                  metrics   = ['accuracy'])
-    return model, (18, 7, 4)
+    return model, (18, 7, 4), 102, None
+
+def vgg_like2(in_sz = None):
+    """returns standard model based on VGG architecture"""
+
+    in_sz = fplutils.to3d(in_sz)
+    in_sz = in_sz + (1,)
+
+    inputs = Input(shape=in_sz)
+
+    conv1 = Conv3D(48, (3,3,3), use_bias=False)(inputs)
+    conv1 = _bn_relu(conv1)
+    conv1 = Conv3D(48, (3,3,3), use_bias=False)(conv1)
+    conv1 = _bn_relu(conv1)
+    pool1 = MaxPooling3D(pool_size=(2,2,2))(conv1)
+
+    conv2 = Conv3D(48, (3,3,3), use_bias=False)(pool1)
+    conv2 = _bn_relu(conv2)
+    conv2 = Conv3D(48, (3,3,3), use_bias=False)(conv2)
+    conv2 = _bn_relu(conv2)
+    pool2 = MaxPooling3D(pool_size=(2,2,2))(conv2)
+
+    conv3 = Conv3D(48, (3,3,3), use_bias=False)(pool2)
+    conv3 = _bn_relu(conv3)
+
+    full1 = Conv3D(96, (1,1,1), use_bias=False)(conv3)
+    full1 = _bn_relu(full1)
+    full1 = Dropout(0.5)(full1)
+
+    full2 = Conv3D(96, (1,1,1), use_bias=False)(full1)
+    full2 = _bn_relu(full2)
+    full2 = Dropout(0.5)(full2)
+
+    predictions = Conv3D(1, (1,1,1), activation='sigmoid')(full2)
+
+    model = Model(inputs=inputs, outputs=predictions)
+    return model, (24, 10, 4), 100, None
 
 def resnet_like(in_sz=None):
     """ returns a model that uses residual components
@@ -157,10 +187,7 @@ def resnet_like(in_sz=None):
     predictions = Conv3D(1, (1, 1, 1), activation='sigmoid')(conv3)
 
     model = Model(inputs=inputs, outputs=predictions)
-    model.compile(loss      = 'binary_crossentropy',
-                  optimizer = 'adam',
-                  metrics   = ['accuracy'])
-    return model, (18, 7, 4)
+    return model, (18, 7, 4), 102, None
 
 def unet_like(in_sz=18):
     '''
@@ -204,10 +231,10 @@ def unet_like(in_sz=18):
     predictions = Conv3D(1, (1, 1, 1), activation='sigmoid', use_bias=False)(conv5) # 6x6x6
 
     model = Model(inputs=inputs, outputs=predictions)
-    model.compile(loss=masked_binary_crossentropy,
-                  optimizer='adam',
-                  metrics=[masked_accuracy])
-    return model, (18, 6, 1)
+    compile_args = {'loss': masked_binary_crossentropy,
+                    'optimizer': 'adam',
+                    'metrics': ['masked_accuracy']}
+    return model, (18, 6, 1), 102, compile_args
 
 def unet_like_vol(in_sz=62):
     """construct a u-net style network
@@ -251,8 +278,8 @@ def unet_like_vol(in_sz=62):
     conv4_sz = tuple((ss-2)*2 for ss in conv3_sz)
 
     crop_conv1 = Cropping3D(cropping=(
-        (math.floor((conv1_sz[0]-conv4_sz[0])/2), math.ceil((conv1_sz[0]-conv4_sz[0])/2)), 
-        (math.floor((conv1_sz[1]-conv4_sz[1])/2), math.ceil((conv1_sz[1]-conv4_sz[1])/2)), 
+        (math.floor((conv1_sz[0]-conv4_sz[0])/2), math.ceil((conv1_sz[0]-conv4_sz[0])/2)),
+        (math.floor((conv1_sz[1]-conv4_sz[1])/2), math.ceil((conv1_sz[1]-conv4_sz[1])/2)),
         (math.floor((conv1_sz[2]-conv4_sz[2])/2), math.ceil((conv1_sz[2]-conv4_sz[2])/2))))(conv1)
     up5 = concatenate([UpSampling3D(size=(2, 2, 2))(conv4), crop_conv1]) # 52x52x52
     conv5 = Conv3D(32, (3, 3, 3), activation='relu', use_bias=False)(up5) # 50x50x50
@@ -262,7 +289,7 @@ def unet_like_vol(in_sz=62):
 
     predictions = Conv3D(1, (1, 1, 1), activation='sigmoid', use_bias=False)(conv5) # 50x50x50
     model = Model(inputs=inputs, output=predictions)
-    model.compile(loss=masked_weighted_binary_crossentropy,
-                  optimizer='adam',
-                  metrics=[masked_accuracy])
-    return model, (62, 6, 1)
+    compile_args = {'loss': masked_weighted_binary_crossentropy,
+                    'optimizer': 'adam',
+                    'metrics': ['masked_accuracy']}
+    return model, (18, 6, 1), 102, compile_args
