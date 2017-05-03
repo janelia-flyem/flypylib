@@ -17,12 +17,11 @@ from keras.models import Model
 
 import tensorflow as tf
 
-def make_parallel(model, gpu_count):
-    def get_slice(data, idx, parts):
-        shape = data.get_shape().as_list()[1:]
-        # assume at run time batch_size is 1 per gpu
-        size  = [1,]   + shape
-        start = [idx,] + len(shape)*[0,]
+def make_parallel(model, gpu_count, batch_size=1, input_shape=None):
+    def get_slice(data, idx, batch_size, input_shape):
+        # shape = data.get_shape().as_list()[1:]
+        size  = [batch_size,]     + list(input_shape)
+        start = [idx*batch_size,] + len(input_shape)*[0,]
         return tf.slice(data, start, size)
 
     outputs_all = []
@@ -37,8 +36,11 @@ def make_parallel(model, gpu_count):
                 inputs = []
                 #Slice each input into a piece for processing on this GPU
                 for x in model.inputs:
-                    input_shape = tuple(x.get_shape().as_list())[1:]
-                    slice_n = Lambda(get_slice, output_shape=input_shape, arguments={'idx':i,'parts':gpu_count})(x)
+                    if input_shape is None:
+                        x_input_shape = tuple(x.get_shape().as_list())[1:]
+                    else:
+                        x_input_shape = input_shape
+                    slice_n = Lambda(get_slice, output_shape=x_input_shape, arguments={'idx':i,'batch_size':batch_size,'input_shape':x_input_shape})(x)
                     inputs.append(slice_n)
 
                 outputs = model(inputs)
