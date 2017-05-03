@@ -9,18 +9,42 @@ from keras.layers import Dropout, Activation, Conv3D, MaxPooling3D, Cropping3D, 
 from keras.layers import BatchNormalization
 from keras.layers import Input
 from keras.layers import add, concatenate
+from tensorflow.python.framework import ops
+from tensorflow.python.ops import nn
+from tensorflow.python.ops import clip_ops
+from tensorflow.python.ops import math_ops
+from tensorflow.python.ops import nn
+import math
 import keras.backend as K
 import numpy as np
+
+def _to_tensor(x, dtype):
+    x = ops.convert_to_tensor(x)
+    if x.dtype != dtype:
+        x = math_ops.cast(x, dtype)
+    return x
+
+def masked_weighted_binary_crossentropy(y_true, y_pred):
+    # Epsilon fuzz factor used throughout the codebase.
+    _EPSILON = 10e-8
+    mask = K.cast(K.not_equal(y_true, 2), K.floatx())
+    y_true = y_true * mask
+    y_pred = y_pred * mask
+    epsilon = _to_tensor(_EPSILON, y_pred.dtype.base_dtype)
+    y_pred = clip_ops.clip_by_value(y_pred, epsilon, 1 - epsilon)
+    y_pred = math_ops.log(y_pred / (1 - y_pred))
+    cost = nn.weighted_cross_entropy_with_logits(logits=y_pred, targets=y_true, pos_weight=100)
+    return K.mean(cost, axis=-1)
 
 def masked_binary_crossentropy(y_true, y_pred):
     mask = K.cast(K.not_equal(y_true, 2), K.floatx())
     return K.mean(K.binary_crossentropy(y_pred * mask,
-                                        y_true * mask))
+                                        y_true * mask), axis=-1)
 
 def masked_accuracy(y_true, y_pred):
     mask = K.cast(K.not_equal(y_true, 2), K.floatx())
     return K.mean(K.equal(y_true * mask,
-                          K.round(y_pred * mask)))
+                          K.round(y_pred * mask)), axis=-1)
 
 def _bn_relu(input):
     """Helper to build a BN -> relu block
@@ -184,3 +208,61 @@ def unet_like(in_sz=18):
                   optimizer='adam',
                   metrics=[masked_accuracy])
     return model, (18, 6, 1)
+
+def unet_like_vol(in_sz=62):
+    """construct a u-net style network
+    """
+    in_sz = fplutils.to3d(in_sz)
+    in_sz = in_sz + (1,)
+
+    inputs = Input(shape=in_sz) # 62x62x62
+
+    # down-sample
+    conv1 = Conv3D(16, (3, 3, 3), activation='relu', use_bias=False)(inputs) # 60x60x60
+    #conv1 = _bn_relu(conv1)
+    conv1 = Conv3D(16, (1, 1, 1), activation='relu', use_bias=False)(conv1) # 60x60x60
+    #conv1 = _bn_relu(conv1)
+    pool1 = MaxPooling3D(pool_size=(2, 2, 2))(conv1) # 30x30x30
+
+    conv2 = Conv3D(32, (3, 3, 3), activation='relu', use_bias=False)(pool1) # 28x28x28
+    #conv2 = _bn_relu(conv2)
+    conv2 = Conv3D(32, (1, 1, 1), activation='relu', use_bias=False)(conv2) # 28x28x28
+    #conv2 = _bn_relu(conv2)
+    pool2 = MaxPooling3D(pool_size=(2, 2, 2))(conv2) # 14x14x14
+
+    conv3 = Conv3D(64, (1, 1, 1), activation='relu', use_bias=False)(pool2) # 14x14x14
+    #conv3 = _bn_relu(conv3)
+
+    conv2_sz = tuple((math.floor((ss-2)/2)-2) for ss in in_sz[0:3])
+    conv3_sz = tuple(math.floor(ss/2)*2 for ss in conv2_sz) # size after up-sampling conv3
+    #crop_conv2 = Cropping3D(cropping=(
+    #    (0, conv2_sz[0]-conv3_sz[0]),
+    #    (0, conv2_sz[1]-conv3_sz[1]),
+    #    (0, conv2_sz[2]-conv3_sz[2])))(conv2)
+    # up-sample
+    up_conv3 = UpSampling3D(size=(2, 2, 2))(conv3)
+    up4 = concatenate([up_conv3, conv2]) # 28x28x28
+    conv4 = Conv3D(64, (3, 3, 3), activation='relu', use_bias=False)(up4) # 26x26x26
+    #conv4 = _bn_relu(conv4)
+    conv4 = Conv3D(64, (1, 1, 1), activation='relu', use_bias=False)(conv4) # 26x26x26
+    #conv4 = _bn_relu(conv4)
+
+    conv1_sz = tuple((ss-2) for ss in in_sz[0:3])
+    conv4_sz = tuple((ss-2)*2 for ss in conv3_sz)
+
+    crop_conv1 = Cropping3D(cropping=(
+        (math.floor((conv1_sz[0]-conv4_sz[0])/2), math.ceil((conv1_sz[0]-conv4_sz[0])/2)), 
+        (math.floor((conv1_sz[1]-conv4_sz[1])/2), math.ceil((conv1_sz[1]-conv4_sz[1])/2)), 
+        (math.floor((conv1_sz[2]-conv4_sz[2])/2), math.ceil((conv1_sz[2]-conv4_sz[2])/2))))(conv1)
+    up5 = concatenate([UpSampling3D(size=(2, 2, 2))(conv4), crop_conv1]) # 52x52x52
+    conv5 = Conv3D(32, (3, 3, 3), activation='relu', use_bias=False)(up5) # 50x50x50
+    #conv5 = _bn_relu(conv5)
+    conv5 = Conv3D(32, (1, 1, 1), activation='relu', use_bias=False)(conv5) # 50x50x50
+    #conv5 = _bn_relu(conv5)
+
+    predictions = Conv3D(1, (1, 1, 1), activation='sigmoid', use_bias=False)(conv5) # 50x50x50
+    model = Model(inputs=inputs, output=predictions)
+    model.compile(loss=masked_weighted_binary_crossentropy,
+                  optimizer='adam',
+                  metrics=[masked_accuracy])
+    return model, (62, 6, 1)
