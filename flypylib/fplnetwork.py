@@ -52,7 +52,7 @@ class FplNetwork:
         self.train_network.compile(**compile_args)
         self.compile_args = compile_args
 
-    def save(self, filepath):
+    def save_network(self, filepath):
         keras_filepath = filepath + '.keras.h5'
         self.train_single.save(keras_filepath)
 
