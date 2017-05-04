@@ -392,7 +392,7 @@ def _evaluate_substacks_worker(pred, obj_min_dist, smoothing_sigma,
                                json_fn, thds, allow_mult, qq):
     out  = voxel2obj(pred, obj_min_dist, smoothing_sigma,
                      volume_offset, buffer_sz)
-    gt   = fplsynapses.load_from_json(json_fn)
+    gt   = fplsynapses.load_from_json(json_fn, pred.shape, buffer_sz)
     rr   = obj_pr_curve(out, gt, obj_min_dist, thds, allow_mult=allow_mult)
 
     qq.put({json_fn: rr})
