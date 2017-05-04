@@ -312,8 +312,10 @@ def obj_pr(predict_locs, groundtruth_locs, dist_thresh, allow_mult=False):
     match    = obj_match(dists, allow_mult=allow_mult)
 
     num_tp   = match.sum()
+    pd_mult  = np.maximum(match.sum(axis=1) - 1,0).sum()
+    tot_pred = match.shape[0] + pd_mult
     result   = PR_Result(
-        num_tp=num_tp, tot_pred=match.shape[0], tot_gt=match.shape[1],
+        num_tp=num_tp, tot_pred=tot_pred, tot_gt=match.shape[1],
         pp=num_tp/match.shape[0], rr=num_tp/match.shape[1],
         match=match)
 
