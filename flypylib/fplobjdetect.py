@@ -77,6 +77,8 @@ def gen_batches(train_data, context_sz, batch_sz, is_mask=False):
 
         for cc in range(2):
             n_possible = len(locs[train_idx][cc][0])
+            if n_possible == 0: # just use last iterations
+                continue
             locs_idx   = np.random.choice(n_possible,
                                           n_per_class, True)
 
