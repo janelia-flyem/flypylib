@@ -233,7 +233,7 @@ def unet_like(in_sz=18):
     model = Model(inputs=inputs, outputs=predictions)
     compile_args = {'loss': masked_binary_crossentropy,
                     'optimizer': 'adam',
-                    'metrics': ['masked_accuracy']}
+                    'metrics': [masked_accuracy]}
     return model, (18, 6, 1), 102, compile_args
 
 def unet_like_vol(in_sz=62):
