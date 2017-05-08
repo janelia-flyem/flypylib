@@ -31,8 +31,8 @@ def gen_batches(train_data, context_sz, batch_sz, is_mask=False):
 
     """
 
-    n_per_class = round(batch_sz/2)
-    context_rr  = tuple(round(cc/2) for cc in context_sz)
+    n_per_class = int(round(batch_sz/2))
+    context_rr  = tuple(int(round(cc/2)) for cc in context_sz)
 
     ims  = []
     lls  = []
