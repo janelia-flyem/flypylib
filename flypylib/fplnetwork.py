@@ -5,13 +5,28 @@ import h5py
 import numpy as np
 import pickle
 
+def get_custom_objects(compile_args):
+    custom_objects = {}
+
+    if not isinstance(compile_args['loss'], str):
+        custom_objects[ compile_args['loss'].__name__ ] \
+            = compile_args['loss']
+
+    for mm in compile_args['metrics']:
+        if not isinstance(mm, str):
+            custom_objects[mm.__name__] = mm
+
+    return custom_objects
+
 def load_network(filepath):
     fn = open(filepath,'rb')
     network = pickle.load(fn)
     fn.close()
 
+    custom_objects = get_custom_objects(network.compile_args)
     keras_filepath = filepath + '.keras.h5'
-    network.train_single  = load_model(keras_filepath)
+    network.train_single  = load_model(
+        keras_filepath, custom_objects=custom_objects)
     network.train_network = network.train_single
     network._set_infer()
 
@@ -64,7 +79,9 @@ class FplNetwork:
         pickle.dump(self, fn)
         fn.close()
 
-        self.train_single  = load_model(keras_filepath)
+        custom_objects     = get_custom_objects(self.compile_args)
+        self.train_single  = load_model(keras_filepath,
+                                        custom_objects=custom_objects)
         self.train_network = self.train_single
         self._set_infer()
 
