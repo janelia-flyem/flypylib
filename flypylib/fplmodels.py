@@ -41,6 +41,16 @@ def masked_binary_crossentropy(y_true, y_pred):
     return K.mean(K.binary_crossentropy(y_pred * mask,
                                         y_true * mask), axis=-1)
 
+def lb0l1err(y_true, y_pred):
+    mask = K.cast(K.equal(y_true, 0), K.floatx())
+    err = y_pred * mask
+    return K.sum(err) / K.maximum(K.sum(mask), 1)
+
+def lb1l1err(y_true, y_pred):
+    mask = K.cast(K.equal(y_true, 1), K.floatx())
+    err = (1-y_pred) * mask
+    return K.sum(err) / K.maximum(K.sum(mask), 1)
+
 def masked_accuracy(y_true, y_pred):
     mask = K.cast(K.not_equal(y_true, 2), K.floatx())
     return K.mean(K.equal(y_true * mask,
@@ -233,7 +243,8 @@ def unet_like(in_sz=18):
     model = Model(inputs=inputs, outputs=predictions)
     compile_args = {'loss': masked_binary_crossentropy,
                     'optimizer': 'adam',
-                    'metrics': [masked_accuracy]}
+                    'metrics': [masked_accuracy,
+                                lb0l1err, lb1l1err]}
     return model, (18, 6, 1), 102, compile_args
 
 def unet_like_vol(in_sz=62):
