@@ -3,7 +3,7 @@ detection
 
 """
 
-from flypylib import fplutils
+from flypylib import fplutils, deconv3D
 from keras.models import Model
 from keras.layers import Dropout, Activation, Conv3D, MaxPooling3D, Cropping3D, UpSampling3D
 from keras.layers import BatchNormalization
@@ -209,34 +209,34 @@ def unet_like(in_sz=18):
     inputs = Input(shape=in_sz) # 18x18x18
 
     # down-sample
-    conv1 = Conv3D(32, (3, 3, 3), activation='relu', use_bias=False)(inputs) # 16x16x16
-    #conv1 = _bn_relu(conv1)
-    conv1 = Conv3D(32, (1, 1, 1), activation='relu', use_bias=False)(conv1) # 16x16x16
-    #conv1 = _bn_relu(conv1)
+    conv1 = Conv3D(32, (3, 3, 3), use_bias=False)(inputs) # 16x16x16
+    conv1 = _bn_relu(conv1)
+    conv1 = Conv3D(32, (1, 1, 1), use_bias=False)(conv1) # 16x16x16
+    conv1 = _bn_relu(conv1)
     pool1 = MaxPooling3D(pool_size=(2, 2, 2))(conv1) # 8x8x8
 
-    conv2 = Conv3D(64, (3, 3, 3), activation='relu', use_bias=False)(pool1) # 6x6x6
-    #conv2 = _bn_relu(conv2)
-    conv2 = Conv3D(64, (1, 1, 1), activation='relu', use_bias=False)(conv2) # 6x6x6
-    #conv2 = _bn_relu(conv2)
+    conv2 = Conv3D(64, (3, 3, 3), use_bias=False)(pool1) # 6x6x6
+    conv2 = _bn_relu(conv2)
+    conv2 = Conv3D(64, (1, 1, 1), use_bias=False)(conv2) # 6x6x6
+    conv2 = _bn_relu(conv2)
     pool2 = MaxPooling3D(pool_size=(2, 2, 2))(conv2) # 3x3x3
 
-    conv3 = Conv3D(128, (1, 1, 1), activation='relu', use_bias=False)(pool2) # 3x3x3
-    #conv3 = _bn_relu(conv3)
+    conv3 = Conv3D(128, (1, 1, 1), use_bias=False)(pool2) # 3x3x3
+    conv3 = _bn_relu(conv3)
 
     # up-sample
     up4 = concatenate([UpSampling3D(size=(2, 2, 2))(conv3), conv2]) # 6x6x6
-    conv4 = Conv3D(64, (3, 3, 3), activation='relu', use_bias=False)(up4) # 4x4x4
-    #conv4 = _bn_relu(conv4)
-    conv4 = Conv3D(64, (1, 1, 1), activation='relu', use_bias=False)(conv4) # 4x4x4
-    #conv4 = _bn_relu(conv4)
+    conv4 = Conv3D(64, (3, 3, 3), use_bias=False)(up4) # 4x4x4
+    conv4 = _bn_relu(conv4)
+    conv4 = Conv3D(64, (1, 1, 1), use_bias=False)(conv4) # 4x4x4
+    conv4 = _bn_relu(conv4)
 
     crop_conv1 = Cropping3D(cropping=((4, 4), (4, 4), (4, 4)))(conv1)
     up5 = concatenate([UpSampling3D(size=(2, 2, 2))(conv4), crop_conv1]) # 8x8x8
-    conv5 = Conv3D(32, (3, 3, 3), activation='relu', use_bias=False)(up5) # 6x6x6
-    #conv5 = _bn_relu(conv5)
-    conv5 = Conv3D(32, (1, 1, 1), activation='relu', use_bias=False)(conv5) # 6x6x6
-    #conv5 = _bn_relu(conv5)
+    conv5 = Conv3D(32, (3, 3, 3), use_bias=False)(up5) # 6x6x6
+    conv5 = _bn_relu(conv5)
+    conv5 = Conv3D(32, (1, 1, 1), use_bias=False)(conv5) # 6x6x6
+    conv5 = _bn_relu(conv5)
 
     predictions = Conv3D(1, (1, 1, 1), activation='sigmoid', use_bias=False)(conv5) # 6x6x6
 
@@ -246,6 +246,54 @@ def unet_like(in_sz=18):
                     'metrics': [masked_accuracy,
                                 lb0l1err, lb1l1err]}
     return model, (18, 6, 1), 102, compile_args
+
+def unet_like2(in_sz=24):
+    '''
+    construct a u-net style network
+    '''
+    in_sz = fplutils.to3d(in_sz)
+    in_sz = in_sz + (1,)
+
+    inputs = Input(shape=in_sz) # 24x24x24
+
+    # down-sample
+    conv1 = Conv3D(32, (3, 3, 3), use_bias=False)(inputs) # 22x22x22
+    conv1 = _bn_relu(conv1)
+    conv1 = Conv3D(32, (3, 3, 3), use_bias=False)(conv1) # 20x20x20
+    conv1 = _bn_relu(conv1)
+    pool1 = MaxPooling3D(pool_size=(2, 2, 2))(conv1) # 10x10x10
+    
+    conv2 = Conv3D(64, (3, 3, 3), use_bias=False)(pool1) # 8x8x8
+    conv2 = _bn_relu(conv2)
+    conv2 = Conv3D(64, (3, 3, 3), use_bias=False)(conv2) # 6x6x6
+    conv2 = _bn_relu(conv2)
+    pool2 = MaxPooling3D(pool_size=(2, 2, 2))(conv2) # 3x3x3
+
+    conv3 = Conv3D(128, (1, 1, 1), use_bias=False)(pool2) # 3x3x3
+    conv3 = _bn_relu(conv3)
+
+    # up-sample
+    up4 = concatenate([UpSampling3D(size=(2, 2, 2))(conv3), conv2]) # 6x6x6
+    conv4 = Conv3D(64, (3, 3, 3), use_bias=False)(up4) # 4x4x4
+    conv4 = _bn_relu(conv4)
+    conv4 = Conv3D(64, (1, 1, 1), use_bias=False)(conv4) # 4x4x4
+    conv4 = _bn_relu(conv4)
+
+    crop_conv1 = Cropping3D(cropping=((6, 6), (6, 6), (6, 6)))(conv1)
+    up5 = concatenate([UpSampling3D(size=(2, 2, 2))(conv4), crop_conv1]) # 8x8x8
+    conv5 = Conv3D(32, (3, 3, 3), use_bias=False)(up5) # 6x6x6
+    conv5 = _bn_relu(conv5)
+    conv5 = Conv3D(32, (1, 1, 1), use_bias=False)(conv5) # 6x6x6
+    conv5 = _bn_relu(conv5)
+
+    predictions = Conv3D(1, (1, 1, 1), activation='sigmoid', use_bias=False)(conv5) # 6x6x6
+
+    model = Model(inputs=inputs, outputs=predictions)
+    compile_args = {'loss': masked_binary_crossentropy,
+                    'optimizer': 'adam',
+                    'metrics': [masked_accuracy,
+                                lb0l1err, lb1l1err]}
+    return model, (24, 10, 1), 100, compile_args
 
 def unet_like_vol(in_sz=62):
     """construct a u-net style network
@@ -303,4 +351,4 @@ def unet_like_vol(in_sz=62):
     compile_args = {'loss': masked_weighted_binary_crossentropy,
                     'optimizer': 'adam',
                     'metrics': ['masked_accuracy']}
-    return model, (18, 6, 1), 102, compile_args
+    return model, (62, 10, 1), 102, compile_args
