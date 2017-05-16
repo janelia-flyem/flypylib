@@ -357,6 +357,9 @@ def obj_pr_curve(predict, groundtruth, dist_thresh, thresholds,
     pp       = np.zeros( (n_thd,) )
     rr       = np.zeros( (n_thd,) )
 
+    # hueifang
+    match    = []
+
     for ii in range(thresholds.size):
         predict_locs_iter = predict_locs[
             predict_conf >= thresholds[ii],:]
@@ -367,9 +370,15 @@ def obj_pr_curve(predict, groundtruth, dist_thresh, thresholds,
         tot_gt[  ii] = mm.tot_gt
         pp[      ii] = mm.pp
         rr[      ii] = mm.rr
+        # hueifang
+        match.append(mm.match)
 
+    #result = PR_Result(num_tp=num_tp, tot_pred=tot_pred, tot_gt=tot_gt,
+    #                   pp=pp, rr=rr, match=None)
+    # hueifang
     result = PR_Result(num_tp=num_tp, tot_pred=tot_pred, tot_gt=tot_gt,
-                       pp=pp, rr=rr, match=None)
+                       pp=pp, rr=rr, match=match)
+
     return result
 
 
@@ -487,18 +496,20 @@ def gen_volume(train_data, context_sz, batch_sz, ratio):
         (batch_sz, context_sz[0], context_sz[1], context_sz[2], 1),
         dtype='float32')
 
-    out_sz = tuple(get_out_sz(cc) for cc in context_sz)
+    #out_sz = tuple(get_out_sz(cc) for cc in context_sz)
+    out_sz = (6, 6, 6)
     out_rr = tuple(round(cc/2) for cc in out_sz)
     labels = np.zeros((batch_sz, out_sz[0], out_sz[1], out_sz[2], 1), dtype='uint8')
     #masks = np.zeros((batch_sz, out_sz[0], out_sz[1], out_sz[2], 1), dtype='uint8')
 
     while True:
-        im = ims[train_idx]
-        ll = lls[train_idx]
-        mm = mms[train_idx]
 
         # random sampling
         example_idx = 0
+        '''
+        im = ims[train_idx]
+        ll = lls[train_idx]
+        mm = mms[train_idx]
         label_idx = 1 # positive samples
         if np.random.uniform(0,1) < ratio:
             label_idx = 0 # negative samples
@@ -508,8 +519,22 @@ def gen_volume(train_data, context_sz, batch_sz, ratio):
             label_idx = 0
             n_possible = len(locs[train_idx][label_idx][0])
         locs_idx = np.random.choice(n_possible, batch_sz, True)
-
+        '''
         for ii in range(batch_sz):
+            im = ims[train_idx]
+            ll = lls[train_idx]
+            mm = mms[train_idx]
+
+            label_idx = 1 # positive samples
+            if np.random.uniform(0,1) < ratio:
+                label_idx = 0 # negative samples
+                
+            n_possible = len(locs[train_idx][label_idx][0])
+            if (n_possible == 0):
+                label_idx = 0
+                n_possible = len(locs[train_idx][label_idx][0])
+            locs_idx = np.random.choice(n_possible, batch_sz, True)
+
             locs_idx_ii = locs_idx[ii]
             xx_ii = locs[train_idx][label_idx][0][locs_idx_ii]
             yy_ii = locs[train_idx][label_idx][1][locs_idx_ii]
@@ -529,6 +554,7 @@ def gen_volume(train_data, context_sz, batch_sz, ratio):
                 zz_ii-out_rr[2]:zz_ii+out_rr[2]]
             '''
             example_idx = example_idx + 1
+            train_idx = (train_idx + 1) % n_train
 
         # data augmentation
         aug_rot = np.floor(4*np.random.rand(batch_sz))
@@ -552,4 +578,4 @@ def gen_volume(train_data, context_sz, batch_sz, ratio):
                     [labels[ii,:,:,:,0]], 0)
 
         yield data, labels
-        train_idx = (train_idx + 1) % n_train
+        #train_idx = (train_idx + 1) % n_train
