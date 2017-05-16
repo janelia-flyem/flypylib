@@ -357,9 +357,6 @@ def obj_pr_curve(predict, groundtruth, dist_thresh, thresholds,
     pp       = np.zeros( (n_thd,) )
     rr       = np.zeros( (n_thd,) )
 
-    # hueifang
-    match    = []
-
     for ii in range(thresholds.size):
         predict_locs_iter = predict_locs[
             predict_conf >= thresholds[ii],:]
@@ -370,15 +367,9 @@ def obj_pr_curve(predict, groundtruth, dist_thresh, thresholds,
         tot_gt[  ii] = mm.tot_gt
         pp[      ii] = mm.pp
         rr[      ii] = mm.rr
-        # hueifang
-        match.append(mm.match)
 
-    #result = PR_Result(num_tp=num_tp, tot_pred=tot_pred, tot_gt=tot_gt,
-    #                   pp=pp, rr=rr, match=None)
-    # hueifang
     result = PR_Result(num_tp=num_tp, tot_pred=tot_pred, tot_gt=tot_gt,
-                       pp=pp, rr=rr, match=match)
-
+                       pp=pp, rr=rr, match=None)
     return result
 
 
