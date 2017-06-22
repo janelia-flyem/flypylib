@@ -1,6 +1,8 @@
 """functions for working with synapse data, json, dvid """
 
 from flypylib import fplutils
+from libdvid import DVIDNodeService, ConnectionMethod, DVIDConnection
+from libdvid._dvid_python import DVIDException
 import json
 import numpy as np
 
@@ -45,3 +47,40 @@ def load_from_json(fn, vol_sz=None, buffer=None):
 
     tbars = { 'locs': locs, 'conf': conf }
     return tbars
+
+def tbars_to_json_format(tbars_np, json_file=None):
+    tbars_json = []
+    locs = tbars_np['locs']
+    conf = tbars_np['conf']
+    for ii in np.arange(conf.size):
+        props = { 'conf' : '%.03f' % conf[ii] }
+        tt = { 'Kind': 'PreSyn',
+               'Pos' : locs[ii,:].astype('int').tolist(),
+               'Prop': props }
+        tbars_json.append(tt)
+
+    if json_file is not None: # write out to file
+        with open(json_file,'w') as f_out:
+            json.dump(tbars_json, f_out)
+    return tbars_json
+
+def tbars_push_dvid(tbars_json, dvid_server, dvid_uuid, dvid_annot):
+    dvid_node = DVIDNodeService(dvid_server, dvid_uuid,
+                                'fpl', 'fpl')
+    dvid_conn = DVIDConnection(dvid_server, 'fpl', 'fpl')
+
+    # create annotation if necessary
+    try:
+        dvid_node.custom_request('%s/info' % dvid_annot,
+                                 None, ConnectionMethod.GET)
+    except DVIDException as e:
+        post_json = json.dumps({
+            'typename': 'annotation',
+            'dataname': dvid_annot})
+        status, body, error_message = dvid_conn.make_request(
+            '/repo/%s/instance' % dvid_uuid,
+            ConnectionMethod.POST, post_json)
+
+    data = json.dumps(tbars_json)
+    dvid_node.custom_request('%s/elements' % dvid_annot,
+                             data, ConnectionMethod.POST)
