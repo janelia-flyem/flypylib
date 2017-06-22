@@ -160,7 +160,7 @@ def voxel2obj(pred, obj_min_dist, smoothing_sigma,
     pred[:,-obj_min_dist:,:] = 0
     pred[:,:,-obj_min_dist:] = 0
 
-    thresh = np.percentile(pred,97)
+    thresh = np.maximum(np.percentile(pred,97), thd)
     locs   = (pred > thresh).nonzero()
     inds   = np.ravel_multi_index(locs, pred.shape)
 
