@@ -191,7 +191,10 @@ def voxel2obj(pred, obj_min_dist, smoothing_sigma,
         inds = np.delete(inds, np.logical_not(
             is_valid_flat[inds]).nonzero())
 
-    obj_pred        = np.asarray(obj_pred)
+    if obj_pred:
+        obj_pred = np.asarray(obj_pred)
+    else:
+        obj_pred = np.zeros( (0,4) )
     obj_pred[:,:3] -= obj_min_dist
 
     min_bound = np.asarray([[
