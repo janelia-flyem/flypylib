@@ -207,6 +207,9 @@ def voxel2obj(pred, obj_min_dist, smoothing_sigma,
                           np.any(obj_pred >= max_bound, 1).nonzero(),
                           axis=0)
 
+    obj_shift = np.array([volume_offset + (0,)])
+    obj_pred  += obj_shift
+
     obj_out = { 'locs': obj_pred[:,:3],
                 'conf': obj_pred[:,3] }
     return obj_out
