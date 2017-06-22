@@ -141,7 +141,8 @@ class FplNetwork:
         idx_sz    = end_idx - start_idx
         n_idx     = locs.shape[1]
 
-        n_idx_batch = int(np.ceil(n_idx / self.n_gpu)*self.n_gpu)
+        n_idx_batch = int(np.ceil(n_idx /
+                                  float(self.n_gpu))*self.n_gpu)
 
         data_batch = np.zeros(
             (n_idx_batch,infer_sz[0,0],infer_sz[1,0],infer_sz[2,0],1))
