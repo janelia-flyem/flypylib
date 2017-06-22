@@ -3,7 +3,7 @@ detection
 
 """
 
-from flypylib import fplutils, deconv3D
+from flypylib import fplutils
 from keras.models import Model
 from keras.layers import Dropout, Activation, Conv3D, MaxPooling3D, Cropping3D, UpSampling3D
 from keras.layers import BatchNormalization
@@ -262,7 +262,7 @@ def unet_like2(in_sz=24):
     conv1 = Conv3D(32, (3, 3, 3), use_bias=False)(conv1) # 20x20x20
     conv1 = _bn_relu(conv1)
     pool1 = MaxPooling3D(pool_size=(2, 2, 2))(conv1) # 10x10x10
-    
+
     conv2 = Conv3D(64, (3, 3, 3), use_bias=False)(pool1) # 8x8x8
     conv2 = _bn_relu(conv2)
     conv2 = Conv3D(64, (3, 3, 3), use_bias=False)(conv2) # 6x6x6
