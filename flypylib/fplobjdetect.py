@@ -124,7 +124,7 @@ def gen_batches(train_data, context_sz, batch_sz, is_mask=False):
         train_idx = (train_idx + 1) % n_train
 
 def voxel2obj(pred, obj_min_dist, smoothing_sigma,
-              volume_offset, buffer_sz):
+              volume_offset=(0,0,0), buffer_sz=0, thd=0):
     """convert voxel-wise predictions to object predictions
 
     apply smoothing and non-maxima suppression to dense voxel-wise
