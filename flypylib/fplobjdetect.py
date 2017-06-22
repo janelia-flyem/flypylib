@@ -7,6 +7,7 @@
 """
 
 from flypylib import fplutils, fplsynapses
+from flypylib import fplutils, fplsynapses, fplnetwork
 import numpy as np
 import h5py
 from scipy import ndimage
@@ -14,6 +15,7 @@ import pulp
 import math
 import multiprocessing
 from collections import namedtuple
+import os, sys, pickle
 
 PR_Result = namedtuple(
     'PR_Result', 'num_tp tot_pred tot_gt pp rr match')
@@ -576,6 +578,184 @@ def gen_volume(train_data, context_sz, batch_sz, ratio):
 
         yield data, labels
         #train_idx = (train_idx + 1) % n_traindef flip(m, axis):
+        #train_idx = (train_idx + 1) % n_train
+
+def gen_volume2(train_data, context_sz, batch_sz, ratio):
+    """generator function that yields training batches
+
+    extract training patches and labels for training with keras
+    fit_generator
+
+    Args:
+        train_data (tuple of tuple of str): for each inner tuple, first string gives filename for training image hdf5 file, and second string gives filename prefix for labels and mask hdf5 files
+        context_sz (tuple of int): tuple specifying size of training patches
+        batch_sz   (int): number of examples in batch to yield
+        ratio      (float): ratio of negative samples
+
+    """
+    context_rr  = tuple(round(cc/2) for cc in context_sz)
+
+    ims  = []
+    lls  = []
+    mms  = []
+    locs = [[[], [], [], []],
+            [[], [], [], []]]
+    train_idx = 0
+
+    use_weighted_sampling = False
+    if len(train_data[0])>2:
+        use_weighted_sampling = True
+        for cc in range(2):
+            locs[cc].append([])
+
+    for tr in train_data:
+        ims.append(h5py.File(tr[0],'r')['/main'][:])
+        lls.append(h5py.File('%slabels.h5' % tr[1], 'r')['/main'][:])
+        mms.append(h5py.File('%smask.h5'   % tr[1], 'r')['/main'][:])
+
+        mms[-1][:context_rr[0],:,:] = 0
+        mms[-1][:,:context_rr[1],:] = 0
+        mms[-1][:,:,:context_rr[2]] = 0
+        mms[-1][-context_rr[0]:,:,:] = 0
+        mms[-1][:,-context_rr[1]:,:] = 0
+        mms[-1][:,:,-context_rr[2]:] = 0
+
+        if use_weighted_sampling:
+            ww = h5py.File(tr[2],'r')['/main'][:]
+
+        for cc in range(2):
+            if use_weighted_sampling:
+                locs_iter = ( (lls[-1]==cc) & (mms[-1]==1) &
+                              (ww > 0)).nonzero()
+                ww_locs_iter = ww[locs_iter]
+            else:
+                locs_iter = ( (lls[-1]==cc) & (mms[-1]==1) ).nonzero()
+            for locs_iter_ii in locs_iter:
+                locs_iter_ii = locs_iter_ii.astype('int16')
+            locs_ss   = train_idx * np.ones(locs_iter[0].shape,
+                                            dtype='int16')
+            locs_iter = (locs_ss,) + locs_iter
+            if use_weighted_sampling:
+                locs_iter = locs_iter + (ww_locs_iter,)
+
+            for ll in range(len(locs_iter)):
+                locs[cc][ll].append(locs_iter[ll])
+
+        # set the label of the ignored regions to 2
+        idx = (mms[-1] == 0).nonzero()
+        lls[-1][idx] = 2
+        train_idx += 1
+
+    for cc in range(2):
+        for ll in range(len(locs[cc])):
+            locs[cc][ll] = np.concatenate(locs[cc][ll])
+    if use_weighted_sampling:
+        for cc in range(2):
+            locs[cc][4] /= np.sum(locs[cc][4].astype('float32'))
+
+    train_idx   = 0
+    n_train     = len(train_data)
+    data        = np.zeros(
+        (batch_sz, context_sz[0], context_sz[1], context_sz[2], 1),
+        dtype='float32')
+
+    #out_sz = tuple(get_out_sz(cc) for cc in context_sz)
+    out_sz = (6, 6, 6)
+    out_rr = tuple(round(cc/2) for cc in out_sz)
+    labels = np.zeros((batch_sz, out_sz[0], out_sz[1], out_sz[2], 1), dtype='uint8')
+
+
+    n_tot_neg = len(locs[0][0])
+    n_tot_pos = len(locs[1][0])
+    outer_batches  = 100
+    outer_batch_sz = outer_batches * batch_sz
+    n_neg          = round(ratio*outer_batch_sz)
+    n_pos          = outer_batch_sz - n_neg
+    while True:
+        if use_weighted_sampling:
+            neg_idx = np.random.choice(n_tot_neg, n_neg, True,
+                                       locs[0][4])
+            pos_idx = np.random.choice(n_tot_pos, n_pos, True,
+                                       locs[1][4])
+        else:
+            neg_idx = np.random.choice(n_tot_neg, n_neg, True)
+            pos_idx = np.random.choice(n_tot_pos, n_pos, True)
+        all_idx = np.random.permutation(outer_batch_sz)
+
+        sample_idx = 0
+        for b_idx in range(outer_batches):
+            example_idx = 0
+
+            for ii in range(batch_sz):
+                locs_idx = all_idx[sample_idx]
+                if(locs_idx < n_neg):
+                    label_idx = 0
+                    locs_idx  = neg_idx[locs_idx]
+                else:
+                    label_idx = 1
+                    locs_idx -= n_neg
+                    locs_idx  = pos_idx[locs_idx]
+
+                train_idx = locs[label_idx][0][locs_idx]
+                im = ims[train_idx]
+                ll = lls[train_idx]
+                mm = mms[train_idx]
+
+                xx_ii = locs[label_idx][1][locs_idx]
+                yy_ii = locs[label_idx][2][locs_idx]
+                zz_ii = locs[label_idx][3][locs_idx]
+                data[example_idx,:,:,:,0] = im[
+                    xx_ii-context_rr[0]:xx_ii+context_rr[0],
+                    yy_ii-context_rr[1]:yy_ii+context_rr[1],
+                    zz_ii-context_rr[2]:zz_ii+context_rr[2]]
+                labels[example_idx, :, :, :, 0] = ll[
+                    xx_ii-out_rr[0]:xx_ii+out_rr[0],
+                    yy_ii-out_rr[1]:yy_ii+out_rr[1],
+                    zz_ii-out_rr[2]:zz_ii+out_rr[2]]
+
+                example_idx = example_idx + 1
+                sample_idx  += 1
+
+            # data augmentation
+            aug_rot = np.floor(4*np.random.rand(batch_sz))
+            aug_ref = np.floor(2*np.random.rand(batch_sz))
+            aug_fpz = np.floor(2*np.random.rand(batch_sz))
+            for ii in range(batch_sz):
+                if(aug_rot[ii]):
+                    data[ii,:,:,:,0] = rot90(
+                        data[ii,:,:,:,0], aug_rot[ii], (1,2) )
+                    labels[ii,:,:,:,0] = rot90(
+                        labels[ii,:,:,:,0], aug_rot[ii], (1,2))
+                if(aug_ref[ii]):
+                    data[ii,:,:,:,0] = np.fliplr(
+                        data[ii,:,:,:,0])
+                    labels[ii,:,:,:,0] = np.fliplr(
+                        labels[ii,:,:,:,0])
+                if(aug_fpz[ii]):
+                    data[ii,:,:,:,0] = np.flipud(
+                        data[ii,:,:,:,0])
+                    labels[ii,:,:,:,0] = np.flipud(
+                        [labels[ii,:,:,:,0]])
+
+            yield data, labels
+            #train_idx = (train_idx + 1) % n_train
+
+def write_sampling_weights(train_data, network, fn_prefix,
+                           l0_thresh, l1_thresh):
+    train_data_aug = []
+    idx = 0
+    for tr in train_data:
+        voxel_loss = network.voxel_loss(
+            tr[0], tr[1], l0_thresh, l1_thresh)
+        ww_fn = '%s%02d.h5' % (fn_prefix, idx)
+        hh = h5py.File(ww_fn,'w')
+        hh.create_dataset('/main', voxel_loss.shape,
+                          dtype='float32', compression='gzip')
+        hh['/main'][:] = voxel_loss
+        hh.close()
+        train_data_aug.append(list(tr) + [ww_fn,])
+        idx += 1
+    return train_data_aug
 def flip(m, axis):
     if not hasattr(m, 'ndim'):
         m = asarray(m)
