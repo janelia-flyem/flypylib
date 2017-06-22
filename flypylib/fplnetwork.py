@@ -169,3 +169,34 @@ class FplNetwork:
                      :idx_sz[2,ii]-2*offset_sz[2,0],0]
 
         return pred
+
+    def voxel_loss(self, image, lm_prefix,
+                   l0_thresh=None, l1_thresh=None):
+        pred = self.infer(image)
+        ll   = h5py.File('%slabels.h5' % lm_prefix, 'r')['/main'][:]
+        mm   = h5py.File('%smask.h5'   % lm_prefix, 'r')['/main'][:]
+
+        context_rr  = tuple(round(cc/2) for cc in self.rf_size)
+        mm[:context_rr[0],:,:] = 0
+        mm[:,:context_rr[1],:] = 0
+        mm[:,:,:context_rr[2]] = 0
+        mm[-context_rr[0]:,:,:] = 0
+        mm[:,-context_rr[1]:,:] = 0
+        mm[:,:,-context_rr[2]:] = 0
+
+        l0_loss = -1.*(mm==1)*(ll==0)*np.log(np.maximum(1-pred, 1e-8))
+        conf_neg = (l0_loss < 0.005)*(mm==1)*(ll==0)
+        l0_loss[conf_neg] = 0
+        mm[     conf_neg] = 0
+        if l0_thresh is not None:
+            l0_mask = (ll==0)*(mm==1)
+            l0_loss = np.maximum(l0_loss, l0_thresh[0]*l0_mask)
+            l0_loss = np.minimum(l0_loss, l0_thresh[1]*l0_mask)
+
+        l1_loss = -1.*(mm==1)*(ll==1)*np.log(np.maximum(  pred, 1e-8))
+        if l1_thresh is not None:
+            l1_mask = (ll==1)*(mm==1)
+            l1_loss = np.maximum(l1_loss, l1_thresh[0]*l1_mask)
+            l1_loss = np.minimum(l1_loss, l1_thresh[1]*l1_mask)
+
+        return (l0_loss + l1_loss).astype('float32')
