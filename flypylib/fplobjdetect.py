@@ -6,8 +6,8 @@
 
 """
 
-from flypylib import fplutils, fplsynapses
 from flypylib import fplutils, fplsynapses, fplnetwork
+from libdvid import DVIDNodeService, ConnectionMethod
 import numpy as np
 import h5py
 from scipy import ndimage
@@ -527,7 +527,7 @@ def gen_volume(train_data, context_sz, batch_sz, ratio):
             label_idx = 1 # positive samples
             if np.random.uniform(0,1) < ratio:
                 label_idx = 0 # negative samples
-                
+
             n_possible = len(locs[train_idx][label_idx][0])
             if (n_possible == 0):
                 label_idx = 0
@@ -577,7 +577,6 @@ def gen_volume(train_data, context_sz, batch_sz, ratio):
                     [labels[ii,:,:,:,0]], 0)
 
         yield data, labels
-        #train_idx = (train_idx + 1) % n_traindef flip(m, axis):
         #train_idx = (train_idx + 1) % n_train
 
 def gen_volume2(train_data, context_sz, batch_sz, ratio):
@@ -756,6 +755,119 @@ def write_sampling_weights(train_data, network, fn_prefix,
         train_data_aug.append(list(tr) + [ww_fn,])
         idx += 1
     return train_data_aug
+
+def full_roi_inference(dvid_server, dvid_uuid, dvid_roi,
+                       network, thd, working_dir,
+                       image_normalize,
+                       obj_min_dist=27, smoothing_sigma=5,
+                       buffer_sz=35, partition_size=16):
+
+    try:
+        os.makedirs(working_dir)
+    except OSError:
+        if not os.path.isdir(working_dir):
+            raise
+
+    dvid_node = DVIDNodeService(dvid_server, dvid_uuid,
+                                'fpl','fpl')
+    roi = dvid_node.get_roi_partition(dvid_roi, partition_size)
+
+    locs = []
+    conf = []
+
+    # skip previously processed substacks, prepare pool worker args
+    fri_get_image_args = []
+    num_processed = 0
+    for rr in roi[0]:
+        ff = fri_filename(working_dir, rr)
+        if os.path.isfile(ff):
+            with open(ff, 'rb') as f_in:
+                obj = pickle.load(f_in)
+            locs.append(obj['locs'])
+            conf.append(obj['conf'])
+            num_processed += 1
+            continue
+        fri_get_image_args.append(
+            [rr, dvid_server, dvid_uuid, image_normalize, buffer_sz])
+    print('already processed: %d' % num_processed)
+    print('to process: %d' % len(fri_get_image_args))
+
+    qq      = multiprocessing.Queue()
+    pp_dl   = multiprocessing.Pool(processes=2)
+    pp_objs = []
+    n_done  = 0
+    for ss in pp_dl.imap(fri_get_image, fri_get_image_args):
+        pred = network.infer(ss[0])
+        pp_obj = multiprocessing.Process(
+            target=fri_postprocess,
+            args=(pred, working_dir, obj_min_dist, smoothing_sigma,
+                  ss[1], buffer_sz, thd, qq))
+        pp_objs.append(pp_obj)
+        pp_obj.start()
+        n_done += 1
+        sys.stdout.write('\r%d' % n_done)
+        sys.stdout.flush()
+
+    for pp_obj in pp_objs:
+        ff = qq.get()
+        with open(ff, 'rb') as f_in:
+            obj = pickle.load(f_in)
+            locs.append(obj['locs'])
+            conf.append(obj['conf'])
+
+    locs = np.concatenate(locs)
+    conf = np.concatenate(conf)
+
+    # filter by roi
+    pts    = np.fliplr(locs).astype('int').tolist()
+    in_roi = dvid_node.roi_ptquery(dvid_roi, pts)
+    in_roi = np.array(in_roi)
+    locs   = locs[in_roi]
+    conf   = conf[in_roi]
+
+    obj = { 'locs': locs,
+            'conf': conf }
+    with open('%s/all.p' % working_dir, 'wb') as f_out:
+        pickle.dump(obj, f_out)
+    return obj
+
+
+def fri_get_image(substack_info):
+    substack        = substack_info[0]
+    dvid_server     = substack_info[1]
+    dvid_uuid       = substack_info[2]
+    image_normalize = substack_info[3]
+    buffer_sz       = substack_info[4]
+
+    dvid_node = DVIDNodeService(dvid_server, dvid_uuid,
+                                'fpl','fpl')
+    image_sz = substack.size + 2*buffer_sz
+    image_offset = [substack.z - buffer_sz,
+                    substack.y - buffer_sz,
+                    substack.x - buffer_sz]
+    image = dvid_node.get_gray3D('grayscale',
+                                 [image_sz, image_sz, image_sz],
+                                 image_offset)
+    image = (image.astype('float32') -
+             image_normalize[0]) / image_normalize[1]
+    return (image, substack)
+
+def fri_postprocess(pred, working_dir, obj_min_dist, smoothing_sigma,
+                    substack, buffer_sz, thd, qq):
+    out = voxel2obj(pred, obj_min_dist, smoothing_sigma,
+                    (substack.x - buffer_sz,
+                     substack.y - buffer_sz,
+                     substack.z - buffer_sz),
+                    buffer_sz, thd)
+    ff = fri_filename(working_dir, substack)
+    with open(ff, 'wb') as f_out:
+        pickle.dump(out, f_out)
+    qq.put(ff)
+
+def fri_filename(working_dir, substack):
+    return '%s/%d_%d_%d_%d.p' % (working_dir, substack.size,
+                                 substack.z, substack.y, substack.x)
+
 def flip(m, axis):
     if not hasattr(m, 'ndim'):
         m = asarray(m)
