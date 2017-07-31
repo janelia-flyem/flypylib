@@ -64,6 +64,21 @@ def tbars_to_json_format(tbars_np, json_file=None):
             json.dump(tbars_json, f_out)
     return tbars_json
 
+def tbars_to_json_format_raveler(tbars_np, json_file=None):
+    tbars_json = []
+    locs = tbars_np['locs']
+    conf = tbars_np['conf']
+    for ii in np.arange(conf.size):
+        tt = { 'confidence': '%.03f' % conf[ii],
+               'location': locs[ii,:].astype('int').tolist() }
+        tbars_json.append( { 'T-bar': tt } )
+    tbars_json = { 'data': tbars_json }
+
+    if json_file is not None: # write out to file
+        with open(json_file,'w') as f_out:
+            json.dump(tbars_json, f_out)
+    return tbars_json
+
 def tbars_push_dvid(tbars_json, dvid_server, dvid_uuid, dvid_annot):
     dvid_node = DVIDNodeService(dvid_server, dvid_uuid,
                                 'fpl', 'fpl')
