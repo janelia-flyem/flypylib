@@ -15,10 +15,12 @@ import pulp
 import math
 import multiprocessing
 from collections import namedtuple
-import os, sys, pickle
+import os, sys, pickle, time
 
 PR_Result = namedtuple(
     'PR_Result', 'num_tp tot_pred tot_gt pp rr match')
+szyx = namedtuple(
+    'szyx', 'size z y x')
 
 def gen_batches(train_data, context_sz, batch_sz, is_mask=False):
     """generator function that yields training batches
@@ -411,7 +413,8 @@ def _evaluate_substacks_worker(pred, obj_min_dist, smoothing_sigma,
 
 def evaluate_substacks(network, substacks, thds,
                        obj_min_dist=27, smoothing_sigma=5,
-                       volume_offset=None, buffer_sz=5, allow_mult=False):
+                       volume_offset=(0,0,0), buffer_sz=5,
+                       allow_mult=False):
     qq  = multiprocessing.Queue()
     pps = []
     oo  = {}
@@ -787,29 +790,35 @@ def full_roi_inference(dvid_server, dvid_uuid, dvid_roi,
             conf.append(obj['conf'])
             num_processed += 1
             continue
+        rr2 = szyx(rr.size,rr.z,rr.y,rr.x)
         fri_get_image_args.append(
-            [rr, dvid_server, dvid_uuid, image_normalize, buffer_sz])
+            [rr2, dvid_server, dvid_uuid, image_normalize, buffer_sz])
     print('already processed: %d' % num_processed)
     print('to process: %d' % len(fri_get_image_args))
 
-    qq      = multiprocessing.Queue()
-    pp_dl   = multiprocessing.Pool(processes=2)
-    pp_objs = []
+    qq_pre  = multiprocessing.Queue()
+    qq_post = multiprocessing.Queue()
     n_done  = 0
-    for ss in pp_dl.imap(fri_get_image, fri_get_image_args):
+
+    pp_pre  = multiprocessing.Process(
+        target=fri_get_image_generator,
+        args=(fri_get_image_args, qq_pre))
+    pp_pre.start()
+
+    for ii in range(len(fri_get_image_args)):
+        ss = qq_pre.get()
         pred = network.infer(ss[0])
         pp_obj = multiprocessing.Process(
             target=fri_postprocess,
             args=(pred, working_dir, obj_min_dist, smoothing_sigma,
-                  ss[1], buffer_sz, thd, qq))
-        pp_objs.append(pp_obj)
+                  ss[1], buffer_sz, thd, qq_post))
         pp_obj.start()
         n_done += 1
         sys.stdout.write('\r%d' % n_done)
         sys.stdout.flush()
 
-    for pp_obj in pp_objs:
-        ff = qq.get()
+    for ii in range(len(fri_get_image_args)):
+        ff = qq_post.get()
         with open(ff, 'rb') as f_in:
             obj = pickle.load(f_in)
             locs.append(obj['locs'])
@@ -831,6 +840,11 @@ def full_roi_inference(dvid_server, dvid_uuid, dvid_roi,
         pickle.dump(obj, f_out)
     return obj
 
+def fri_get_image_generator(get_image_args, qq):
+    for gg in get_image_args:
+        while qq.qsize() >= 3:
+            time.sleep(10)
+        qq.put(fri_get_image(gg))
 
 def fri_get_image(substack_info):
     substack        = substack_info[0]
