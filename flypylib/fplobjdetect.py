@@ -110,10 +110,10 @@ def gen_batches(train_data, context_sz, batch_sz, is_mask=False):
         aug_fpz = np.floor(2*np.random.rand(batch_sz))
         for ii in range(batch_sz):
             if(aug_rot[ii]):
-                data[ii,:,:,:,0] = rot90(
+                data[ii,:,:,:,0] = np.rot90(
                     data[ii,:,:,:,0], aug_rot[ii], (1,2) )
                 if (is_mask):
-                    labels[ii,:,:,:,0] = rot90(labels[ii,:,:,:,0], aug_rot[ii], (1,2))
+                    labels[ii,:,:,:,0] = np.rot90(labels[ii,:,:,:,0], aug_rot[ii], (1,2))
             if(aug_ref[ii]):
                 data[ii,:,:,:,0] = np.flip(
                     data[ii,:,:,:,0],2)
@@ -565,9 +565,9 @@ def gen_volume(train_data, context_sz, batch_sz, ratio):
         aug_fpz = np.floor(2*np.random.rand(batch_sz))
         for ii in range(batch_sz):
             if(aug_rot[ii]):
-                data[ii,:,:,:,0] = rot90(
+                data[ii,:,:,:,0] = np.rot90(
                     data[ii,:,:,:,0], aug_rot[ii], (1,2) )
-                labels[ii,:,:,:,0] = rot90(
+                labels[ii,:,:,:,0] = np.rot90(
                     labels[ii,:,:,:,0], aug_rot[ii], (1,2))
             if(aug_ref[ii]):
                 data[ii,:,:,:,0] = np.flip(
@@ -725,9 +725,9 @@ def gen_volume2(train_data, context_sz, batch_sz, ratio):
             aug_fpz = np.floor(2*np.random.rand(batch_sz))
             for ii in range(batch_sz):
                 if(aug_rot[ii]):
-                    data[ii,:,:,:,0] = rot90(
+                    data[ii,:,:,:,0] = np.rot90(
                         data[ii,:,:,:,0], aug_rot[ii], (1,2) )
-                    labels[ii,:,:,:,0] = rot90(
+                    labels[ii,:,:,:,0] = np.rot90(
                         labels[ii,:,:,:,0], aug_rot[ii], (1,2))
                 if(aug_ref[ii]):
                     data[ii,:,:,:,0] = np.fliplr(
@@ -922,48 +922,6 @@ def fri_postprocess(pred, working_dir, obj_min_dist, smoothing_sigma,
 def fri_filename(working_dir, substack):
     return '%s/%d_%d_%d_%d.p' % (working_dir, substack.size,
                                  substack.z, substack.y, substack.x)
-
-def flip(m, axis):
-    if not hasattr(m, 'ndim'):
-        m = asarray(m)
-    indexer = [slice(None)] * m.ndim
-    try:
-        indexer[axis] = slice(None, None, -1)
-    except IndexError:
-        raise ValueError("axis=%i is invalid for the %i-dimensional input array"
-                         % (axis, m.ndim))
-    return m[tuple(indexer)]
-
-def rot90(m, k=1, axes=(0,1)):
-    axes = tuple(axes)
-    if len(axes) != 2:
-        raise ValueError("len(axes) must be 2.")
-
-    m = np.asanyarray(m)
-
-    if axes[0] == axes[1] or np.absolute(axes[0] - axes[1]) == m.ndim:
-        raise ValueError("Axes must be different.")
-
-    if (axes[0] >= m.ndim or axes[0] < -m.ndim
-        or axes[1] >= m.ndim or axes[1] < -m.ndim):
-        raise ValueError("Axes={} out of range for array of ndim={}."
-            .format(axes, m.ndim))
-
-    k %= 4
-
-    if k == 0:
-        return m[:]
-    if k == 2:
-        return flip(flip(m, axes[0]), axes[1])
-
-    axes_list = np.arange(0, m.ndim)
-    axes_list[axes[0]], axes_list[axes[1]] = axes_list[axes[1]], axes_list[axes[0]]
-
-    if k == 1:
-        return np.transpose(flip(m,axes[1]), axes_list)
-    else:
-        # k == 3
-        return flip(np.transpose(m, axes_list), axes[1])
 
 def gen_full_tab_roi(filename, store_name, repo_uuid,
                      crop=[None,None,None],
