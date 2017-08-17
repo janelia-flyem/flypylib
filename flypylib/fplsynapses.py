@@ -94,8 +94,9 @@ def tbars_push_dvid(tbars_json, dvid_server, dvid_uuid, dvid_annot):
             'dataname': dvid_annot})
         status, body, error_message = dvid_conn.make_request(
             '/repo/%s/instance' % dvid_uuid,
-            ConnectionMethod.POST, post_json)
+            ConnectionMethod.POST, post_json.encode('utf-8'))
 
     data = json.dumps(tbars_json)
-    dvid_node.custom_request('%s/elements' % dvid_annot,
-                             data, ConnectionMethod.POST)
+    oo = dvid_node.custom_request('%s/elements' % dvid_annot,
+                                  data.encode('utf-8'),
+                                  ConnectionMethod.POST)
