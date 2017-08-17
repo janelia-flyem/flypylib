@@ -7,7 +7,8 @@
 """
 
 from flypylib import fplutils, fplsynapses, fplnetwork
-from libdvid import DVIDNodeService, ConnectionMethod
+from diced import DicedStore, DicedException
+from libdvid import DVIDNodeService, ConnectionMethod, DVIDException
 import numpy as np
 import h5py
 from scipy import ndimage
@@ -771,9 +772,14 @@ def full_roi_inference(dvid_server, dvid_uuid, dvid_roi,
         if not os.path.isdir(working_dir):
             raise
 
-    dvid_node = DVIDNodeService(dvid_server, dvid_uuid,
-                                'fpl','fpl')
-    roi = dvid_node.get_roi_partition(dvid_roi, partition_size)
+    if dvid_server[:5] == 'gs://': # DICED google bucket
+        has_dvid_roi = False
+        roi = roi_from_txt(dvid_roi)
+    else:
+        has_dvid_roi = True
+        dvid_node = DVIDNodeService(dvid_server, dvid_uuid,
+                                    'fpl','fpl')
+        roi = dvid_node.get_roi_partition(dvid_roi, partition_size)
 
     locs = []
     conf = []
@@ -827,12 +833,13 @@ def full_roi_inference(dvid_server, dvid_uuid, dvid_roi,
     locs = np.concatenate(locs)
     conf = np.concatenate(conf)
 
-    # filter by roi
-    pts    = np.fliplr(locs).astype('int').tolist()
-    in_roi = dvid_node.roi_ptquery(dvid_roi, pts)
-    in_roi = np.array(in_roi)
-    locs   = locs[in_roi]
-    conf   = conf[in_roi]
+    if has_dvid_roi:
+        # filter by roi
+        pts    = np.fliplr(locs).astype('int').tolist()
+        in_roi = dvid_node.roi_ptquery(dvid_roi, pts)
+        in_roi = np.array(in_roi)
+        locs   = locs[in_roi]
+        conf   = conf[in_roi]
 
     obj = { 'locs': locs,
             'conf': conf }
@@ -841,27 +848,61 @@ def full_roi_inference(dvid_server, dvid_uuid, dvid_roi,
     return obj
 
 def fri_get_image_generator(get_image_args, qq):
-    for gg in get_image_args:
-        while qq.qsize() >= 3:
-            time.sleep(10)
-        qq.put(fri_get_image(gg))
+    if not get_image_args:
+        return
 
-def fri_get_image(substack_info):
+    dvid_server     = get_image_args[0][1]
+    dvid_uuid       = get_image_args[0][2]
+
+    if dvid_server[:5] == 'gs://': # DICED google bucket
+        using_diced = True
+        if dvid_server.find(',')>=0:
+            store = DicedStore(*dvid_server.split(','))
+        else:
+            store = DicedStore(dvid_server)
+
+        repo = store.open_repo(uuid=dvid_uuid)
+        dvid_node = repo.get_array('grayscale')
+    else:
+        using_diced = False
+        dvid_node = DVIDNodeService(dvid_server, dvid_uuid,
+                                    'fpl','fpl')
+    for gg in get_image_args:
+        while qq.qsize() >= 2:
+            time.sleep(10)
+        qq.put(fri_get_image(gg, dvid_node, using_diced))
+
+    if using_diced:
+        store._shutdown_store()
+
+def fri_get_image(substack_info, dvid_node, using_diced):
     substack        = substack_info[0]
-    dvid_server     = substack_info[1]
-    dvid_uuid       = substack_info[2]
     image_normalize = substack_info[3]
     buffer_sz       = substack_info[4]
 
-    dvid_node = DVIDNodeService(dvid_server, dvid_uuid,
-                                'fpl','fpl')
     image_sz = substack.size + 2*buffer_sz
     image_offset = [substack.z - buffer_sz,
                     substack.y - buffer_sz,
                     substack.x - buffer_sz]
-    image = dvid_node.get_gray3D('grayscale',
-                                 [image_sz, image_sz, image_sz],
-                                 image_offset)
+
+    if using_diced:
+        while True:
+            try:
+                image = dvid_node[
+                    image_offset[0]:(image_offset[0]+image_sz),
+                    image_offset[1]:(image_offset[1]+image_sz),
+                    image_offset[2]:(image_offset[2]+image_sz)]
+            except (DicedException,DVIDException) as e:
+                print(e)
+                time.sleep(150)
+                continue
+            break
+
+    else:
+        image = dvid_node.get_gray3D('grayscale',
+                                     [image_sz, image_sz, image_sz],
+                                     image_offset)
+
     image = (image.astype('float32') -
              image_normalize[0]) / image_normalize[1]
     return (image, substack)
@@ -923,3 +964,49 @@ def rot90(m, k=1, axes=(0,1)):
     else:
         # k == 3
         return flip(np.transpose(m, axes_list), axes[1])
+
+def gen_full_tab_roi(filename, store_name, repo_uuid,
+                     crop=[None,None,None],
+                     n_splits=1, step_size=512):
+    store  = DicedStore(store_name)
+    repo   = store.open_repo(uuid=repo_uuid)
+    imdata = repo.get_array('grayscale')
+
+    extents = imdata.get_extents()
+    store._shutdown_store()
+
+    for ii in range(len(extents)):
+        if crop[ii] is None:
+            crop[ii] = [extents[ii].start, extents[ii].stop]
+
+    file_idx  = 0
+    f_out     = open('%s_%02d.txt' % (filename, file_idx),'w')
+    count_idx = 0
+
+    max_count = int(np.ceil( (
+        np.ceil( (crop[0][1]-crop[0][0])/float(step_size) ) *
+        np.ceil( (crop[1][1]-crop[1][0])/float(step_size) ) *
+        np.ceil( (crop[2][1]-crop[2][0])/float(step_size) ) ) /
+                             n_splits ))
+
+    for zz in range(crop[0][0],crop[0][1],step_size):
+        for yy in range(crop[1][0],crop[1][1],step_size):
+            for xx in range(crop[2][0],crop[2][1],step_size):
+                f_out.write('%d,%d,%d,%d\n' %
+                            (step_size,zz,yy,xx))
+
+                count_idx += 1
+                if count_idx==max_count:
+                    count_idx=0
+                    file_idx += 1
+                    f_out.close()
+                    f_out = open('%s_%02d.txt' %
+                                 (filename, file_idx),'w')
+
+def roi_from_txt(filename):
+    with open(filename,'r') as f_in:
+        substacks = f_in.read().splitlines()
+    roi = []
+    for ss in substacks:
+        roi.append(szyx(*[int(nn) for nn in ss.split(',')]))
+    return [roi,]
