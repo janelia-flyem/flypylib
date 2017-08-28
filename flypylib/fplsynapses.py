@@ -3,7 +3,7 @@
 from flypylib import fplutils
 from libdvid import DVIDNodeService, ConnectionMethod, DVIDConnection
 from libdvid._dvid_python import DVIDException
-import json
+import json, os
 import numpy as np
 
 def load_from_json(fn, vol_sz=None, buffer=None):
@@ -11,17 +11,34 @@ def load_from_json(fn, vol_sz=None, buffer=None):
 
     """
 
-    with open(fn) as json_file:
-        data = json.load(json_file)
+    if os.path.isfile(fn):
+        with open(fn) as json_file:
+            data = json.load(json_file)
+    else:
+        data = json.loads(fn)
 
     locs = []
     conf = []
-    if(('data' in data.keys()) and len(data['data'])>0 and
+
+    if((isinstance(data, dict) and
+        'data' in data.keys()) and len(data['data'])>0 and
        ('T-bar' in data['data'][0].keys())): # Raveler format
 
         for syn in data['data']:
             locs.append(syn['T-bar']['location'])
             conf.append(syn['T-bar']['confidence'])
+    elif data is not None: # assume dvid format
+        for syn in data:
+            if syn['Kind'] != 'PreSyn':
+                continue
+
+            if 'conf' in syn['Prop']:
+                cc = float(syn['Prop']['conf'])
+            else:
+                cc = 1.0
+
+            locs.append(syn['Pos'])
+            conf.append(cc)
 
     locs  = np.asarray(locs)
     conf  = np.asarray(conf)
@@ -100,3 +117,33 @@ def tbars_push_dvid(tbars_json, dvid_server, dvid_uuid, dvid_annot):
     oo = dvid_node.custom_request('%s/elements' % dvid_annot,
                                   data.encode('utf-8'),
                                   ConnectionMethod.POST)
+
+def roi_to_substacks(dvid_server, dvid_uuid, dvid_roi,
+                     dvid_annotations, partition_size, buffer_size):
+
+    dvid_node = DVIDNodeService(dvid_server, dvid_uuid,
+                                os.getenv('USER'), 'fpl')
+    roi = dvid_node.get_roi_partition(dvid_roi, partition_size)
+
+    for ii in range(len(roi[0])):
+        ss  = roi[0][ii]
+
+        rr3 = dvid_node.get_roi3D(dvid_roi, (ss.size,ss.size,ss.size),
+                                  (ss.z,ss.y,ss.x))
+        frac_in = np.sum(rr3)/float(rr3.size)
+
+        # grab annotations in substack, filter by roi, print num
+        synapses_json = dvid_node.custom_request(
+            '%s/elements/%d_%d_%d/%d_%d_%d' % (
+                dvid_annotations, ss.size, ss.size, ss.size,
+                ss.x, ss.y, ss.z), None,
+            ConnectionMethod.GET)
+        tt = load_from_json(synapses_json.decode())
+        # filter by roi
+        if tt['conf'].size > 0:
+            pts = np.fliplr(tt['locs']).astype('int').tolist()
+            in_roi = np.array(dvid_node.roi_ptquery(dvid_roi, pts))
+        else:
+            in_roi = np.array([])
+
+        print('%03d\t%.03f\t%3d' % (ii, frac_in, np.sum(in_roi)))
