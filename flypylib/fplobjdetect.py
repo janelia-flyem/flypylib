@@ -764,7 +764,8 @@ def full_roi_inference(dvid_server, dvid_uuid, dvid_roi,
                        network, thd, working_dir,
                        image_normalize,
                        obj_min_dist=27, smoothing_sigma=5,
-                       buffer_sz=35, partition_size=16):
+                       buffer_sz=35, partition_size=16,
+                       local_cache_dir=None):
 
     try:
         os.makedirs(working_dir)
@@ -798,7 +799,8 @@ def full_roi_inference(dvid_server, dvid_uuid, dvid_roi,
             continue
         rr2 = szyx(rr.size,rr.z,rr.y,rr.x)
         fri_get_image_args.append(
-            [rr2, dvid_server, dvid_uuid, image_normalize, buffer_sz])
+            [rr2, dvid_server, dvid_uuid, image_normalize, buffer_sz,
+             local_cache_dir])
     print('already processed: %d' % num_processed)
     print('to process: %d' % len(fri_get_image_args))
 
@@ -879,11 +881,19 @@ def fri_get_image(substack_info, dvid_node, using_diced):
     substack        = substack_info[0]
     image_normalize = substack_info[3]
     buffer_sz       = substack_info[4]
+    local_cache_dir = substack_info[5]
 
     image_sz = substack.size + 2*buffer_sz
     image_offset = [substack.z - buffer_sz,
                     substack.y - buffer_sz,
                     substack.x - buffer_sz]
+
+    if local_cache_dir is not None: # return if file exists
+        cfn = fri_cachename(local_cache_dir, substack, buffer_sz)
+        if os.path.isfile(cfn):
+            print('reading from disk')
+            image = h5py.File(cfn,'r')['/main'][:]
+            return (image, substack)
 
     if using_diced:
         while True:
@@ -905,6 +915,15 @@ def fri_get_image(substack_info, dvid_node, using_diced):
 
     image = (image.astype('float32') -
              image_normalize[0]) / image_normalize[1]
+
+    if local_cache_dir is not None: # write out image
+        cfn = fri_cachename(local_cache_dir, substack, buffer_sz)
+        hh = h5py.File(cfn,'w')
+        hh.create_dataset('/main', image.shape,
+                          dtype='float32', compression='gzip')
+        hh['/main'][:] = image
+        hh.close()
+
     return (image, substack)
 
 def fri_postprocess(pred, working_dir, obj_min_dist, smoothing_sigma,
@@ -922,6 +941,10 @@ def fri_postprocess(pred, working_dir, obj_min_dist, smoothing_sigma,
 def fri_filename(working_dir, substack):
     return '%s/%d_%d_%d_%d.p' % (working_dir, substack.size,
                                  substack.z, substack.y, substack.x)
+def fri_cachename(cache_dir, substack, buffer_sz):
+    return '%s/%d_%d_%d_%d_%d.h5' % (
+        cache_dir, substack.size,
+        substack.z, substack.y, substack.x, buffer_sz)
 
 def gen_full_tab_roi(filename, store_name, repo_uuid,
                      crop=[None,None,None],
