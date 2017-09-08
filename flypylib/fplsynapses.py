@@ -21,8 +21,7 @@ def load_from_json(fn, vol_sz=None, buffer=None):
     conf = []
 
     if((isinstance(data, dict) and
-        'data' in data.keys()) and len(data['data'])>0 and
-       ('T-bar' in data['data'][0].keys())): # Raveler format
+        'data' in data.keys())): # Raveler format
 
         for syn in data['data']:
             locs.append(syn['T-bar']['location'])
