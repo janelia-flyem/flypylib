@@ -3,8 +3,9 @@
 from flypylib import fplutils
 from libdvid import DVIDNodeService, ConnectionMethod, DVIDConnection
 from libdvid._dvid_python import DVIDException
-import json, os
 import numpy as np
+import h5py
+import json, os
 
 def load_from_json(fn, vol_sz=None, buffer=None):
     """read synapse data from json file
@@ -118,31 +119,140 @@ def tbars_push_dvid(tbars_json, dvid_server, dvid_uuid, dvid_annot):
                                   ConnectionMethod.POST)
 
 def roi_to_substacks(dvid_server, dvid_uuid, dvid_roi,
-                     dvid_annotations, partition_size, buffer_size):
+                     dvid_annotations, partition_size,
+                     data_dir=None, substack_ids=None,
+                     image_normalize=None, buffer_size=None,
+                     radius_use=None, radius_ign=None):
 
     dvid_node = DVIDNodeService(dvid_server, dvid_uuid,
                                 os.getenv('USER'), 'fpl')
     roi = dvid_node.get_roi_partition(dvid_roi, partition_size)
 
-    for ii in range(len(roi[0])):
-        ss  = roi[0][ii]
+    if substack_ids is None: # print statistics
+        for ii in range(len(roi[0])):
+            ss  = roi[0][ii]
 
-        rr3 = dvid_node.get_roi3D(dvid_roi, (ss.size,ss.size,ss.size),
-                                  (ss.z,ss.y,ss.x))
-        frac_in = np.sum(rr3)/float(rr3.size)
+            rr3 = dvid_node.get_roi3D(
+                dvid_roi, (ss.size,ss.size,ss.size), (ss.z,ss.y,ss.x))
+            frac_in = np.sum(rr3)/float(rr3.size)
 
-        # grab annotations in substack, filter by roi, print num
-        synapses_json = dvid_node.custom_request(
-            '%s/elements/%d_%d_%d/%d_%d_%d' % (
-                dvid_annotations, ss.size, ss.size, ss.size,
-                ss.x, ss.y, ss.z), None,
-            ConnectionMethod.GET)
-        tt = load_from_json(synapses_json.decode())
-        # filter by roi
-        if tt['conf'].size > 0:
-            pts = np.fliplr(tt['locs']).astype('int').tolist()
-            in_roi = np.array(dvid_node.roi_ptquery(dvid_roi, pts))
+            # grab annotations in substack, filter by roi, print num
+            tt = get_substack_annotations(
+                dvid_node, dvid_roi, dvid_annotations, ss)
+            print('%03d\t%.03f\t%3d' % (ii, frac_in, tt['conf'].size))
+
+    else: # write out substacks
+        if not hasattr(substack_ids, '__len__'):
+            substack_ids = [substack_ids,]
+
+        radius_use_flt = fplutils.set_filter(radius_use)
+        if radius_ign is not None:
+            radius_ign_flt = 1 - fplutils.set_filter(radius_ign)
         else:
-            in_roi = np.array([])
+            radius_ign = 0
 
-        print('%03d\t%.03f\t%3d' % (ii, frac_in, np.sum(in_roi)))
+        for ii in substack_ids:
+            print(ii)
+            ss = roi[0][ii]
+
+            # get image with buffer
+            image_sz = ss.size + 2*buffer_size
+            image_offset = [ss.z - buffer_size,
+                            ss.y - buffer_size,
+                            ss.x - buffer_size]
+            image = dvid_node.get_gray3D(
+                'grayscale', [image_sz, image_sz, image_sz],
+                image_offset)
+            image = (image.astype('float32') -
+                     image_normalize[0]) / image_normalize[1]
+            image_fn = '%s/%03d_im%g_%g_bf%d.h5' % (
+                data_dir, ii, image_normalize[0], image_normalize[1],
+                buffer_size)
+            hh = h5py.File(image_fn,'w')
+            hh.create_dataset('/main', image.shape,
+                              dtype='float32', compression='gzip')
+            hh['/main'][:] = image
+            hh.close()
+
+            # get annotations, convert to local coordinates
+            tt = get_substack_annotations(
+                dvid_node, dvid_roi, dvid_annotations, ss)
+            if tt['conf'].size > 0:
+                tt['locs'] -= np.fliplr(np.asarray([image_offset]))
+            json_fn = '%s/%03d_bf%d_synapses.json' % (
+                data_dir, ii, buffer_size)
+            tbars_to_json_format_raveler(tt, json_fn)
+
+            # get labels/mask, account for ROI and buffer
+            mask = dvid_node.get_roi3D(
+                dvid_roi, [image_sz, image_sz, image_sz],
+                image_offset)
+
+            labels = np.zeros( mask.shape, dtype='uint8' )
+            for jj in range(tt['locs'].shape[0]):
+                xx = tt['locs'][jj,0]
+                yy = tt['locs'][jj,1]
+                zz = tt['locs'][jj,2]
+
+                if radius_ign > 0:
+                    mask[(zz-radius_ign):(zz+radius_ign+1),
+                         (yy-radius_ign):(yy+radius_ign+1),
+                         (xx-radius_ign):(xx+radius_ign+1)
+                    ] = np.logical_and(
+                        mask[(zz-radius_ign):(zz+radius_ign+1),
+                             (yy-radius_ign):(yy+radius_ign+1),
+                             (xx-radius_ign):(xx+radius_ign+1)],
+                        radius_ign_flt)
+
+                mask[(zz-radius_use):(zz+radius_use+1),
+                     (yy-radius_use):(yy+radius_use+1),
+                     (xx-radius_use):(xx+radius_use+1)
+                ] = np.logical_or(
+                    mask[(zz-radius_use):(zz+radius_use+1),
+                         (yy-radius_use):(yy+radius_use+1),
+                         (xx-radius_use):(xx+radius_use+1)],
+                    radius_use_flt)
+                labels[(zz-radius_use):(zz+radius_use+1),
+                       (yy-radius_use):(yy+radius_use+1),
+                       (xx-radius_use):(xx+radius_use+1)
+                ] = np.logical_or(
+                    labels[(zz-radius_use):(zz+radius_use+1),
+                           (yy-radius_use):(yy+radius_use+1),
+                           (xx-radius_use):(xx+radius_use+1)],
+                    radius_use_flt)
+
+            mask[:buffer_size, :,:] = 0
+            mask[-buffer_size:,:,:] = 0
+            mask[:,:buffer_size, :] = 0
+            mask[:,-buffer_size:,:] = 0
+            mask[:,:,:buffer_size ] = 0
+            mask[:,:,-buffer_size:] = 0
+
+            prefix = '%s/%03d_ru%d_ri%d_bf%d' % (
+                data_dir, ii, radius_use, radius_ign, buffer_size)
+            hh = h5py.File('%s_labels.h5' % prefix, 'w')
+            hh.create_dataset('/main', labels.shape,
+                              dtype='uint8', compression='gzip')
+            hh['/main'][:] = labels
+            hh.close()
+            hh = h5py.File('%s_mask.h5' % prefix, 'w')
+            hh.create_dataset('/main', mask.shape,
+                              dtype='uint8', compression='gzip')
+            hh['/main'][:] = mask
+            hh.close()
+
+
+def get_substack_annotations(dvid_node, dvid_roi, dvid_annotations, ss):
+    synapses_json = dvid_node.custom_request(
+        '%s/elements/%d_%d_%d/%d_%d_%d' % (
+            dvid_annotations, ss.size, ss.size, ss.size,
+            ss.x, ss.y, ss.z), None,
+        ConnectionMethod.GET)
+    tt = load_from_json(synapses_json.decode())
+    # filter by roi
+    if tt['conf'].size > 0:
+        pts = np.fliplr(tt['locs']).astype('int').tolist()
+        in_roi = np.array(dvid_node.roi_ptquery(dvid_roi, pts))
+        tt['locs'] = tt['locs'][in_roi]
+        tt['conf'] = tt['conf'][in_roi]
+    return tt
