@@ -772,6 +772,12 @@ def full_roi_inference(dvid_server, dvid_uuid, dvid_roi,
     except OSError:
         if not os.path.isdir(working_dir):
             raise
+    norm_dir = '%s/norm' % working_dir
+    try:
+        os.makedirs(norm_dir)
+    except OSError:
+        if not os.path.isdir(norm_dir):
+            raise
 
     if dvid_server[:5] == 'gs://': # DICED google bucket
         has_dvid_roi = False
@@ -800,7 +806,7 @@ def full_roi_inference(dvid_server, dvid_uuid, dvid_roi,
         rr2 = szyx(rr.size,rr.z,rr.y,rr.x)
         fri_get_image_args.append(
             [rr2, dvid_server, dvid_uuid, image_normalize, buffer_sz,
-             local_cache_dir])
+             local_cache_dir, norm_dir])
     print('already processed: %d' % num_processed)
     print('to process: %d' % len(fri_get_image_args))
 
@@ -882,6 +888,7 @@ def fri_get_image(substack_info, dvid_node, using_diced):
     image_normalize = substack_info[3]
     buffer_sz       = substack_info[4]
     local_cache_dir = substack_info[5]
+    norm_dir        = substack_info[6]
 
     image_sz = substack.size + 2*buffer_sz
     image_offset = [substack.z - buffer_sz,
@@ -913,8 +920,33 @@ def fri_get_image(substack_info, dvid_node, using_diced):
                                      [image_sz, image_sz, image_sz],
                                      image_offset)
 
+    im_raw_mn  = np.mean(image);
+    im_raw_std = np.std( image);
+    idx = ((image < 200) & (image > 1))
+    im_flt_mn  = np.mean(image[idx])
+    im_flt_std = np.std( image[idx])
+
+    if len(image_normalize) < 3:
+        global_frac = 1.
+    else:
+        global_frac = image_normalize[2]
+
+    mn_use = global_frac * image_normalize[0] + (
+        1-global_frac) * im_flt_mn
+
     image = (image.astype('float32') -
-             image_normalize[0]) / image_normalize[1]
+             mn_use) / image_normalize[1]
+
+    norm_fn = '%s/%d_%d_%d_%d.txt' % (
+        norm_dir, substack.size,
+        substack.z, substack.y, substack.x)
+    with open(norm_fn,'w') as f_out:
+        f_out.write('%d,%d,%d,%d,%d,%g,%g,%g,%g,%g,%g,%g,%g\n' %
+                    (substack.size, buffer_sz,
+                     substack.z, substack.y, substack.x,
+                     image_normalize[0], image_normalize[1],
+                     global_frac, mn_use,
+                     im_flt_mn, im_flt_std, im_raw_mn, im_raw_std))
 
     if local_cache_dir is not None: # write out image
         cfn = fri_cachename(local_cache_dir, substack, buffer_sz)
