@@ -123,7 +123,7 @@ def gen_batches(train_data, context_sz, batch_sz, is_mask=False):
                 data[ii,:,:,:,0] = np.flip(
                     data[ii,:,:,:,0],0)
                 if (is_mask):
-                    labels[ii,:,:,:,0] = np.flip([labels[ii,:,:,:,0]], 0)
+                    labels[ii,:,:,:,0] = np.flip(labels[ii,:,:,:,0], 0)
 
         yield data, labels
         train_idx = (train_idx + 1) % n_train
@@ -578,7 +578,7 @@ def gen_volume(train_data, context_sz, batch_sz, ratio):
                 data[ii,:,:,:,0] = np.flip(
                     data[ii,:,:,:,0],0)
                 labels[ii,:,:,:,0] = np.flip(
-                    [labels[ii,:,:,:,0]], 0)
+                    labels[ii,:,:,:,0], 0)
 
         yield data, labels
         #train_idx = (train_idx + 1) % n_train
@@ -738,7 +738,7 @@ def gen_volume2(train_data, context_sz, batch_sz, ratio):
                     data[ii,:,:,:,0] = np.flipud(
                         data[ii,:,:,:,0])
                     labels[ii,:,:,:,0] = np.flipud(
-                        [labels[ii,:,:,:,0]])
+                        labels[ii,:,:,:,0])
 
             yield data, labels
             #train_idx = (train_idx + 1) % n_train
