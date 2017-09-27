@@ -122,7 +122,8 @@ def roi_to_substacks(dvid_server, dvid_uuid, dvid_roi,
                      dvid_annotations, partition_size,
                      data_dir=None, substack_ids=None,
                      image_normalize=None, buffer_size=None,
-                     radius_use=None, radius_ign=None):
+                     radius_use=None, radius_ign=None,
+                     seg_name=None):
 
     dvid_node = DVIDNodeService(dvid_server, dvid_uuid,
                                 os.getenv('USER'), 'fpl')
@@ -240,6 +241,20 @@ def roi_to_substacks(dvid_server, dvid_uuid, dvid_roi,
                               dtype='uint8', compression='gzip')
             hh['/main'][:] = mask
             hh.close()
+
+            # get segmentation
+            if seg_name is not None:
+                seg = dvid_node.get_labels3D(
+                    seg_name, [image_sz, image_sz, image_sz],
+                    image_offset)
+
+                seg_fn = '%s/%03d_seg_bf%d.h5' % (
+                    data_dir, ii, buffer_size)
+                hh = h5py.File(seg_fn, 'w')
+                hh.create_dataset('/main', seg.shape,
+                                  dtype='uint64', compression='gzip')
+                hh['main'][:] = seg
+                hh.close()
 
 
 def get_substack_annotations(dvid_node, dvid_roi, dvid_annotations, ss):
