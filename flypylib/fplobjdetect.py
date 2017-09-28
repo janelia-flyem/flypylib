@@ -923,8 +923,12 @@ def fri_get_image(substack_info, dvid_node, using_diced):
     im_raw_mn  = np.mean(image);
     im_raw_std = np.std( image);
     idx = ((image < 200) & (image > 1))
-    im_flt_mn  = np.mean(image[idx])
-    im_flt_std = np.std( image[idx])
+    if np.sum(idx)>0:
+        im_flt_mn  = np.mean(image[idx])
+        im_flt_std = np.std( image[idx])
+    else:
+        im_flt_mn  = image_normalize[0]
+        im_flt_std = image_normalize[1]
 
     if len(image_normalize) < 3:
         global_frac = 1.
