@@ -1,0 +1,26 @@
+package:
+  name: flypylib
+  version: "0.0.2"
+
+source:
+  git_rev: v0.0.2
+  git_url: https://github.com/janelia-flyem/flypylib.git
+
+requirements:
+  build:
+    - python 3.6*
+    - setuptools
+  run:
+    - python 3.6*
+    - diced
+    - libdvid-cpp
+    - numpy 1.13*
+    - keras
+    - tensorflow-gpu
+    - h5py
+    - scipy
+    - pulp
+
+about:
+  home: https://github.com/janelia-flyem/flypylib
+  license: BSD (3-clause)
