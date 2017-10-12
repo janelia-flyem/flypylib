@@ -13,6 +13,6 @@ bash Miniconda3-latest-Linux-x86_64.sh
 CONDA_ROOT=`conda info --root`
 source ${CONDA_ROOT}/bin/activate root
 
-# install flypylib
-conda create -n <NAME> -c flyem-forge -c conda-forge flypylib
+# install flypylib, and optionally ipython and matplotlib
+conda create -n <NAME> -c flyem-forge -c conda-forge flypylib ipython matplotlib
 ```

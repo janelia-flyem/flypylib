@@ -1,5 +1,6 @@
 from flypylib import fplobjdetect, fplmodels, fplnetwork, fplsynapses
 from diced import DicedStore, DicedException
+import matplotlib.pyplot as plt
 import numpy as np
 import h5py
 import urllib, os
@@ -95,10 +96,10 @@ if n_gpu > 1:
     network.make_train_parallel(n_gpu, batch_size, train_shape)
 
 network.train(generator, 1000, 5)
+filename = '%s/net.p' % data_dir
+network.save_network(filename)
 
 ## run inference, plot precision/recall --------------------
-filename = '%s/net-%d.p' % (out_dir, ee)
-network.save_network(filename)
 
 if n_gpu > 1:
     network.make_infer_parallel(n_gpu)
