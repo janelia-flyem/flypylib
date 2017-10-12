@@ -146,12 +146,6 @@ def roi_to_substacks(dvid_server, dvid_uuid, dvid_roi,
         if not hasattr(substack_ids, '__len__'):
             substack_ids = [substack_ids,]
 
-        radius_use_flt = fplutils.set_filter(radius_use)
-        if radius_ign is not None:
-            radius_ign_flt = 1 - fplutils.set_filter(radius_ign)
-        else:
-            radius_ign = 0
-
         for ii in substack_ids:
             print(ii)
             ss = roi[0][ii]
@@ -188,59 +182,17 @@ def roi_to_substacks(dvid_server, dvid_uuid, dvid_roi,
             mask = dvid_node.get_roi3D(
                 dvid_roi, [image_sz, image_sz, image_sz],
                 image_offset)
-
-            labels = np.zeros( mask.shape, dtype='uint8' )
-            for jj in range(tt['locs'].shape[0]):
-                xx = tt['locs'][jj,0]
-                yy = tt['locs'][jj,1]
-                zz = tt['locs'][jj,2]
-
-                if radius_ign > 0:
-                    mask[(zz-radius_ign):(zz+radius_ign+1),
-                         (yy-radius_ign):(yy+radius_ign+1),
-                         (xx-radius_ign):(xx+radius_ign+1)
-                    ] = np.logical_and(
-                        mask[(zz-radius_ign):(zz+radius_ign+1),
-                             (yy-radius_ign):(yy+radius_ign+1),
-                             (xx-radius_ign):(xx+radius_ign+1)],
-                        radius_ign_flt)
-
-                mask[(zz-radius_use):(zz+radius_use+1),
-                     (yy-radius_use):(yy+radius_use+1),
-                     (xx-radius_use):(xx+radius_use+1)
-                ] = np.logical_or(
-                    mask[(zz-radius_use):(zz+radius_use+1),
-                         (yy-radius_use):(yy+radius_use+1),
-                         (xx-radius_use):(xx+radius_use+1)],
-                    radius_use_flt)
-                labels[(zz-radius_use):(zz+radius_use+1),
-                       (yy-radius_use):(yy+radius_use+1),
-                       (xx-radius_use):(xx+radius_use+1)
-                ] = np.logical_or(
-                    labels[(zz-radius_use):(zz+radius_use+1),
-                           (yy-radius_use):(yy+radius_use+1),
-                           (xx-radius_use):(xx+radius_use+1)],
-                    radius_use_flt)
-
-            mask[:buffer_size, :,:] = 0
-            mask[-buffer_size:,:,:] = 0
-            mask[:,:buffer_size, :] = 0
-            mask[:,-buffer_size:,:] = 0
-            mask[:,:,:buffer_size ] = 0
-            mask[:,:,-buffer_size:] = 0
-
-            prefix = '%s/%03d_ru%d_ri%d_bf%d' % (
-                data_dir, ii, radius_use, radius_ign, buffer_size)
-            hh = h5py.File('%s_labels.h5' % prefix, 'w')
-            hh.create_dataset('/main', labels.shape,
-                              dtype='uint8', compression='gzip')
-            hh['/main'][:] = labels
-            hh.close()
-            hh = h5py.File('%s_mask.h5' % prefix, 'w')
+            hh = h5py.File('%s/%03d_bf%d_roimask.h5' % (
+                data_dir, ii, buffer_size), 'w')
             hh.create_dataset('/main', mask.shape,
                               dtype='uint8', compression='gzip')
             hh['/main'][:] = mask
             hh.close()
+
+            prefix = '%s/%03d_ru%d_ri%d_bf%d' % (
+                data_dir, ii, radius_use, radius_ign, buffer_size)
+            write_labels_mask(tt, mask, radius_use, radius_ign,
+                              buffer_size, prefix)
 
             # get segmentation
             if seg_name is not None:
@@ -271,3 +223,63 @@ def get_substack_annotations(dvid_node, dvid_roi, dvid_annotations, ss):
         tt['locs'] = tt['locs'][in_roi]
         tt['conf'] = tt['conf'][in_roi]
     return tt
+
+def write_labels_mask(tbars, roi_mask, radius_use, radius_ign,
+                      buffer_size, prefix):
+    radius_use_flt = fplutils.set_filter(radius_use)
+    if radius_ign is not None:
+        radius_ign_flt = 1 - fplutils.set_filter(radius_ign)
+    else:
+        radius_ign = 0
+
+    mask   = np.copy(roi_mask);
+    labels = np.zeros( mask.shape, dtype='uint8' )
+    for jj in range(tbars['locs'].shape[0]):
+        xx = tbars['locs'][jj,0]
+        yy = tbars['locs'][jj,1]
+        zz = tbars['locs'][jj,2]
+
+        if radius_ign > 0:
+            mask[(zz-radius_ign):(zz+radius_ign+1),
+                 (yy-radius_ign):(yy+radius_ign+1),
+                 (xx-radius_ign):(xx+radius_ign+1)
+            ] = np.logical_and(
+                mask[(zz-radius_ign):(zz+radius_ign+1),
+                     (yy-radius_ign):(yy+radius_ign+1),
+                     (xx-radius_ign):(xx+radius_ign+1)],
+                radius_ign_flt)
+
+        mask[(zz-radius_use):(zz+radius_use+1),
+             (yy-radius_use):(yy+radius_use+1),
+             (xx-radius_use):(xx+radius_use+1)
+        ] = np.logical_or(
+            mask[(zz-radius_use):(zz+radius_use+1),
+                 (yy-radius_use):(yy+radius_use+1),
+                 (xx-radius_use):(xx+radius_use+1)],
+            radius_use_flt)
+        labels[(zz-radius_use):(zz+radius_use+1),
+               (yy-radius_use):(yy+radius_use+1),
+               (xx-radius_use):(xx+radius_use+1)
+        ] = np.logical_or(
+            labels[(zz-radius_use):(zz+radius_use+1),
+                   (yy-radius_use):(yy+radius_use+1),
+                   (xx-radius_use):(xx+radius_use+1)],
+            radius_use_flt)
+
+    mask[:buffer_size, :,:] = 0
+    mask[-buffer_size:,:,:] = 0
+    mask[:,:buffer_size, :] = 0
+    mask[:,-buffer_size:,:] = 0
+    mask[:,:,:buffer_size ] = 0
+    mask[:,:,-buffer_size:] = 0
+
+    hh = h5py.File('%s_labels.h5' % prefix, 'w')
+    hh.create_dataset('/main', labels.shape,
+                      dtype='uint8', compression='gzip')
+    hh['/main'][:] = labels
+    hh.close()
+    hh = h5py.File('%s_mask.h5' % prefix, 'w')
+    hh.create_dataset('/main', mask.shape,
+                      dtype='uint8', compression='gzip')
+    hh['/main'][:] = mask
+    hh.close()
