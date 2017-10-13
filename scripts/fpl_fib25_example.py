@@ -1,9 +1,17 @@
+#!/usr/bin/env python
+
 from flypylib import fplobjdetect, fplmodels, fplnetwork, fplsynapses
 from diced import DicedStore, DicedException
 import matplotlib.pyplot as plt
 import numpy as np
 import h5py
 import urllib, os
+
+######
+# fpl_fib25_example.py
+#
+# This is a test program that uses publically available data to demonstrate
+# the use of the flypylib library. 
 
 # specify directory for data
 data_dir = 'fib25_data'
@@ -20,24 +28,29 @@ except OSError:
 radius_use = 7
 radius_ign = 15
 
+# This uses distinct regions of the same underlying public data
+# for training and test purposes, respectively.
 # x,y,z ordering
 offsets = [
     [3232, 2944, 1984],
     [3744, 2944, 1984]]
-vol_sz = 400
-buffer_sz = 30
+vol_sz = 400 # This number of units in each direction defines the region
+buffer_sz = 30 # plus 30 extra for the algorithms to find feature edges in
 n_offsets = len(offsets)
 
+# This fetches the public dataset from a Google Cloud Storage volume
 store = DicedStore("gs://flyem-public-connectome")
 repo = store.open_repo(uuid="8225")
 full_im = repo.get_array("grayscale")
 
 image_normalize = [128.,33.]
 
+# And we fetch a curated synapse list for the entire image
 syn_url = 'http://emdata.janelia.org/api/node/8225/.files/key/synapse.json'
 full_syn_json = urllib.request.urlopen(syn_url).read().decode()
 full_syn = fplsynapses.load_from_json(full_syn_json)
 
+# Filter the image data into training and test regions
 for ii in range(n_offsets):
     im = full_im[
         (offsets[ii][2]-buffer_sz):(
@@ -54,6 +67,7 @@ for ii in range(n_offsets):
     hh['/main'][:] = im
     hh.close()
 
+# Filter the synapse list down to the training and test regions
     idx = ((full_syn['locs'][:,0] >= offsets[ii][0]) &
            (full_syn['locs'][:,1] >= offsets[ii][1]) &
            (full_syn['locs'][:,2] >= offsets[ii][2]) &
