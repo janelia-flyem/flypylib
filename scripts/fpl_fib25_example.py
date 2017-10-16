@@ -69,7 +69,7 @@ def prep_region(full_image, full_synapses, offset, numeric_prefix, normalization
                 offset[1] + vol_sz + buffer_sz),
             (offset[0] - buffer_sz):(
                 offset[0] + vol_sz + buffer_sz)]
-        im = (im.astype('float32') - normalization)
+        im = (im.astype('float32') - normalization['sub']) / normalization['div']
         hh = h5py.File('%s/%d_im.h5' % (data_dir, numeric_prefix), 'w')
         hh.create_dataset('/main', im.shape,
                           dtype='float32', compression='gzip')
@@ -128,7 +128,10 @@ def main():
     training_offsets = [3232, 2944, 1984]
     test_offsets     = [3744, 2944, 1984]
 
-    image_normalize = 128.0/33.0
+    image_normalize = {
+        'sub': 128.0,
+        'div': 33.0
+    }
 
     vol_sz    = 400 # This number of units in each direction defines the region
     buffer_sz = 30  # plus 30 extra for the algorithms to find feature edges in
