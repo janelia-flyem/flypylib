@@ -810,33 +810,41 @@ def full_roi_inference(dvid_server, dvid_uuid, dvid_roi,
     print('already processed: %d' % num_processed)
     print('to process: %d' % len(fri_get_image_args))
 
-    qq_pre  = multiprocessing.Queue()
-    qq_post = multiprocessing.Queue()
     n_done  = 0
+    max_at_once = 1000
+    fri_im_args_batch = []
+    for ii in range(0, len(fri_get_image_args), max_at_once):
+        fri_im_args_batch.append(
+            fri_get_image_args[ii:min(ii+max_at_once,
+                                      len(fri_get_image_args))] )
 
-    pp_pre  = multiprocessing.Process(
-        target=fri_get_image_generator,
-        args=(fri_get_image_args, qq_pre))
-    pp_pre.start()
+    for bb in fri_im_args_batch:
+        qq_pre  = multiprocessing.Queue()
+        qq_post = multiprocessing.Queue()
 
-    for ii in range(len(fri_get_image_args)):
-        ss = qq_pre.get()
-        pred = network.infer(ss[0])
-        pp_obj = multiprocessing.Process(
-            target=fri_postprocess,
-            args=(pred, working_dir, obj_min_dist, smoothing_sigma,
-                  ss[1], buffer_sz, thd, qq_post))
-        pp_obj.start()
-        n_done += 1
-        sys.stdout.write('\r%d' % n_done)
-        sys.stdout.flush()
+        pp_pre  = multiprocessing.Process(
+            target=fri_get_image_generator,
+            args=(bb, qq_pre))
+        pp_pre.start()
 
-    for ii in range(len(fri_get_image_args)):
-        ff = qq_post.get()
-        with open(ff, 'rb') as f_in:
-            obj = pickle.load(f_in)
-            locs.append(obj['locs'])
-            conf.append(obj['conf'])
+        for ii in range(len(bb)):
+            ss = qq_pre.get()
+            pred = network.infer(ss[0])
+            pp_obj = multiprocessing.Process(
+                target=fri_postprocess,
+                args=(pred, working_dir, obj_min_dist, smoothing_sigma,
+                      ss[1], buffer_sz, thd, qq_post))
+            pp_obj.start()
+            n_done += 1
+            sys.stdout.write('\r%d' % n_done)
+            sys.stdout.flush()
+
+        for ii in range(len(bb)):
+            ff = qq_post.get()
+            with open(ff, 'rb') as f_in:
+                obj = pickle.load(f_in)
+                locs.append(obj['locs'])
+                conf.append(obj['conf'])
 
     locs = np.concatenate(locs)
     conf = np.concatenate(conf)
