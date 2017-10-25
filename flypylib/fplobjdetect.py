@@ -760,13 +760,41 @@ def write_sampling_weights(train_data, network, fn_prefix,
         idx += 1
     return train_data_aug
 
-def full_roi_inference(dvid_server, dvid_uuid, dvid_roi,
+def full_roi_inference(data_source, dvid_uuid, dvid_roi,
                        network, thd, working_dir,
                        image_normalize,
                        obj_min_dist=27, smoothing_sigma=5,
                        buffer_sz=35, partition_size=16,
                        local_cache_dir=None):
+    """ Given a trained network and a data source, return predictions
+        within the provided region. This also caches results to disk so
+        subsequent calls might be faster.
 
+        Parameters:
+            data_source      - string containing an URL that might be a DVID server
+                              or a GoogleStore bucket (gs:// prefix)
+            dvid_uuid       - String containing the UUID of the requested volume
+            dvid_roi        - If data_source is DVID, used to keep track of ROIs already
+                              processed by prior invocations of this function. Otherwise
+                              this is a filename used to load ROIs from a textfile.
+            network         - Pass in an already-trained trained fplnetwork object
+            thd             - Threshold used by voxel2obj in postprocessing
+            working_dir     - A temporary directory needed to store/cache some computation
+            image_normalize - An array of parameters used in normalization.
+                              The first element is the mean value,
+                              The second is the unit standard deviation,
+                              and an optional third value can be provided, if this subunit has a different
+                              mean, to provide an interpolation factor between that mean and the global mean
+            obj_min_dist    - Minimum acceptable distance for predictions.
+            smoothing_sigma - Value used for smoothing function
+            buffer_sz       - How many units (in each dimension) to buffer around the image to
+                              ensure there is data to sample from
+            partition_size  - If data_source is DVID, used to request the data partition containing
+                              the location and size of ROIs. Otherwise ignored.
+            local_cache_dir - An optional parameter that can identify a directory used to cache
+                              the remote data to the local system. Can speed things up, but can also
+                              use a lot of disk. Be careful when using this.
+"""
     try:
         os.makedirs(working_dir)
     except OSError:
@@ -779,12 +807,12 @@ def full_roi_inference(dvid_server, dvid_uuid, dvid_roi,
         if not os.path.isdir(norm_dir):
             raise
 
-    if dvid_server[:5] == 'gs://': # DICED google bucket
+    if data_source[:5] == 'gs://': # DICED google bucket
         has_dvid_roi = False
         roi = roi_from_txt(dvid_roi)
     else:
         has_dvid_roi = True
-        dvid_node = DVIDNodeService(dvid_server, dvid_uuid,
+        dvid_node = DVIDNodeService(data_source, dvid_uuid,
                                     'fpl','fpl')
         roi = dvid_node.get_roi_partition(dvid_roi, partition_size)
 
@@ -805,7 +833,7 @@ def full_roi_inference(dvid_server, dvid_uuid, dvid_roi,
             continue
         rr2 = szyx(rr.size,rr.z,rr.y,rr.x)
         fri_get_image_args.append(
-            [rr2, dvid_server, dvid_uuid, image_normalize, buffer_sz,
+            [rr2, data_source, dvid_uuid, image_normalize, buffer_sz,
              local_cache_dir, norm_dir])
     print('already processed: %d' % num_processed)
     print('to process: %d' % len(fri_get_image_args))
