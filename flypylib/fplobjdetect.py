@@ -765,13 +765,15 @@ def full_roi_inference(data_source, dvid_uuid, dvid_roi,
                        image_normalize,
                        obj_min_dist=27, smoothing_sigma=5,
                        buffer_sz=35, partition_size=16,
-                       local_cache_dir=None):
+                       local_cache_dir=None,
+                       roi_force_file=False,
+                       instance_name='grayscale'):
     """ Given a trained network and a data source, return predictions
         within the provided region. This also caches results to disk so
         subsequent calls might be faster.
 
         Parameters:
-            data_source      - string containing an URL that might be a DVID server
+            data_source     - string containing an URL that might be a DVID server
                               or a GoogleStore bucket (gs:// prefix)
             dvid_uuid       - String containing the UUID of the requested volume
             dvid_roi        - If data_source is DVID, used to keep track of ROIs already
@@ -794,6 +796,10 @@ def full_roi_inference(data_source, dvid_uuid, dvid_roi,
             local_cache_dir - An optional parameter that can identify a directory used to cache
                               the remote data to the local system. Can speed things up, but can also
                               use a lot of disk. Be careful when using this.
+            roi_force_file  - Boolean, forces load of ROIs from file even with a DVID
+                              data_source. Useful if your DVID is readonly.
+            instance_name   - If you're doing inference on a data instance not named grayscale,
+                              you may specify a different name here
 """
     try:
         os.makedirs(working_dir)
@@ -807,7 +813,7 @@ def full_roi_inference(data_source, dvid_uuid, dvid_roi,
         if not os.path.isdir(norm_dir):
             raise
 
-    if data_source[:5] == 'gs://': # DICED google bucket
+    if data_source[:5] == 'gs://' or roi_force_file: # Always when using a DICED google bucket
         has_dvid_roi = False
         roi = roi_from_txt(dvid_roi)
     else:
@@ -834,7 +840,7 @@ def full_roi_inference(data_source, dvid_uuid, dvid_roi,
         rr2 = szyx(rr.size,rr.z,rr.y,rr.x)
         fri_get_image_args.append(
             [rr2, data_source, dvid_uuid, image_normalize, buffer_sz,
-             local_cache_dir, norm_dir])
+             local_cache_dir, norm_dir, instance_name])
     print('already processed: %d' % num_processed)
     print('to process: %d' % len(fri_get_image_args))
 
@@ -897,6 +903,7 @@ def fri_get_image_generator(get_image_args, qq):
 
     dvid_server     = get_image_args[0][1]
     dvid_uuid       = get_image_args[0][2]
+    instance_name   = get_image_args[0][7]
 
     if dvid_server[:5] == 'gs://': # DICED google bucket
         using_diced = True
@@ -906,7 +913,7 @@ def fri_get_image_generator(get_image_args, qq):
             store = DicedStore(dvid_server)
 
         repo = store.open_repo(uuid=dvid_uuid)
-        dvid_node = repo.get_array('grayscale')
+        dvid_node = repo.get_array(instance_name)
     else:
         using_diced = False
         dvid_node = DVIDNodeService(dvid_server, dvid_uuid,
@@ -914,12 +921,12 @@ def fri_get_image_generator(get_image_args, qq):
     for gg in get_image_args:
         while qq.qsize() >= 2:
             time.sleep(10)
-        qq.put(fri_get_image(gg, dvid_node, using_diced))
+        qq.put(fri_get_image(gg, dvid_node, using_diced, instance_name))
 
     if using_diced:
         store._shutdown_store()
 
-def fri_get_image(substack_info, dvid_node, using_diced):
+def fri_get_image(substack_info, dvid_node, using_diced, instance_name='grayscale'):
     substack        = substack_info[0]
     image_normalize = substack_info[3]
     buffer_sz       = substack_info[4]
@@ -952,7 +959,7 @@ def fri_get_image(substack_info, dvid_node, using_diced):
             break
 
     else:
-        image = dvid_node.get_gray3D('grayscale',
+        image = dvid_node.get_gray3D(instance_name,
                                      [image_sz, image_sz, image_sz],
                                      image_offset)
 
