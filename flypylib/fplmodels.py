@@ -293,7 +293,7 @@ def unet_like2(in_sz=24):
                     'optimizer': 'adam',
                     'metrics': [masked_accuracy,
                                 lb0l1err, lb1l1err]}
-    return model, (24, 10, 1), 100, compile_args
+    return model, (24, 9, 1), 100, compile_args
 
 def unet_like_vol(in_sz=62):
     """construct a u-net style network
@@ -351,4 +351,4 @@ def unet_like_vol(in_sz=62):
     compile_args = {'loss': masked_weighted_binary_crossentropy,
                     'optimizer': 'adam',
                     'metrics': ['masked_accuracy']}
-    return model, (62, 10, 1), 102, compile_args
+    return model, (62, 6, 1), 102, compile_args
