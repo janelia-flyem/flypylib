@@ -8,7 +8,8 @@ class ObjPredVisualizeErrors:
 
     def __init__(self, im, pd_voxel, gt,
                  obj_min_dist=27, smoothing_sigma=5,
-                 volume_offset=None, buffer_sz=15, allow_mult=False):
+                 volume_offset=(0,0,0), buffer_sz=15, allow_mult=False,
+                 print_offset=(0,0,0)):
 
         if(isinstance(im, str)):
             im = h5py.File(im,'r')['/main'][:]
@@ -36,7 +37,8 @@ class ObjPredVisualizeErrors:
                                ((0,),(self.radius,),(self.radius,)),
                                'constant')
         self.result   = fplobjdetect.obj_pr(
-            self.pd['locs'], self.gt['locs'], obj_min_dist, allow_mult)
+            self.pd['locs'], self.gt['locs'], obj_min_dist,
+            allow_mult=allow_mult)
 
         self.n_pd     = self.pd['conf'].size
         self.n_gt     = self.gt['conf'].size
@@ -58,6 +60,8 @@ class ObjPredVisualizeErrors:
         self.overlay  = 1
         self.z        = 0
         self.moved    = True
+
+        self.print_offset = np.asarray(print_offset)-buffer_sz
 
         fig = plt.figure()
         fig.canvas.mpl_connect('key_press_event', self.keypress)
@@ -102,9 +106,11 @@ class ObjPredVisualizeErrors:
                       (self.gt_curr+1, self.n_gt,
                        self.gt_mconf[self.gt_idx[self.gt_curr]],
                        score,
-                       self.gt['locs'][self.gt_idx[self.gt_curr],0],
-                       self.gt['locs'][self.gt_idx[self.gt_curr],1],
-                       self.z))
+                       self.gt['locs'][self.gt_idx[self.gt_curr],0] +
+                       self.print_offset[0],
+                       self.gt['locs'][self.gt_idx[self.gt_curr],1] +
+                       self.print_offset[1],
+                       self.z + self.print_offset[2]))
             else:
                 self.z = self.pd['locs'][self.pd_idx[self.pd_curr],2]
 
@@ -117,9 +123,11 @@ class ObjPredVisualizeErrors:
                        self.pd_match[self.pd_idx[self.pd_curr]],
                        self.pd['conf'][self.pd_idx[self.pd_curr]],
                        score,
-                       self.pd['locs'][self.pd_idx[self.pd_curr],0],
-                       self.pd['locs'][self.pd_idx[self.pd_curr],1],
-                       self.z))
+                       self.pd['locs'][self.pd_idx[self.pd_curr],0] +
+                       self.print_offset[0],
+                       self.pd['locs'][self.pd_idx[self.pd_curr],1] +
+                       self.print_offset[1],
+                       self.z + self.print_offset[2]))
             self.z = int(self.z)
             self.moved = False
 
