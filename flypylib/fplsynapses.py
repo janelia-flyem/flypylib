@@ -127,7 +127,12 @@ def roi_to_substacks(dvid_server, dvid_uuid, dvid_roi,
 
     dvid_node = DVIDNodeService(dvid_server, dvid_uuid,
                                 os.getenv('USER'), 'fpl')
-    roi = dvid_node.get_roi_partition(dvid_roi, partition_size)
+
+    if os.path.isfile(dvid_roi): # read from file
+        print('reading roi %s from file' % dvid_roi)
+        roi = fplutils.roi_from_txt(dvid_roi)
+    else:
+        roi = dvid_node.get_roi_partition(dvid_roi, partition_size)
 
     if substack_ids is None: # print statistics
         for ii in range(len(roi[0])):
@@ -217,7 +222,7 @@ def get_substack_annotations(dvid_node, dvid_roi, dvid_annotations, ss):
         ConnectionMethod.GET)
     tt = load_from_json(synapses_json.decode())
     # filter by roi
-    if tt['conf'].size > 0:
+    if dvid_roi is not None and tt['conf'].size > 0:
         pts = np.fliplr(tt['locs']).astype('int').tolist()
         in_roi = np.array(dvid_node.roi_ptquery(dvid_roi, pts))
         tt['locs'] = tt['locs'][in_roi]
