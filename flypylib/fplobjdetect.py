@@ -285,7 +285,9 @@ def obj_match(dists, allow_mult=False):
 
     return obj_matches
 
-def obj_pr(predict_locs, groundtruth_locs, dist_thresh, allow_mult=False):
+def obj_pr(predict_locs, groundtruth_locs, dist_thresh,
+           predict_lbls=None, groundtruth_lbls=None,
+           allow_mult=False):
     """compute precision/recall
 
     given predicted and groundtruth object locations, computes
@@ -322,6 +324,12 @@ def obj_pr(predict_locs, groundtruth_locs, dist_thresh, allow_mult=False):
     dists    = np.sqrt( ((pred-gt)**2).sum(axis=2) )
     dists   -= dist_thresh
 
+    if predict_lbls is not None:
+        lbl_constraint = (
+            predict_lbls.reshape( (-1,1) ) !=
+            groundtruth_lbls.reshape( (1,-1) ) ).astype('float32')
+        dists += (dist_thresh+1.) * lbl_constraint
+
     match    = obj_match(dists, allow_mult=allow_mult)
 
     num_tp   = match.sum()
@@ -335,6 +343,7 @@ def obj_pr(predict_locs, groundtruth_locs, dist_thresh, allow_mult=False):
     return result
 
 def obj_pr_curve(predict, groundtruth, dist_thresh, thresholds,
+                 predict_lbls=None, groundtruth_lbls=None,
                  allow_mult=False):
     """compute precision/recall curve
 
@@ -368,11 +377,18 @@ def obj_pr_curve(predict, groundtruth, dist_thresh, thresholds,
     pp       = np.zeros( (n_thd,) )
     rr       = np.zeros( (n_thd,) )
 
+    predict_lbls_iter = None
+
     for ii in range(thresholds.size):
-        predict_locs_iter = predict_locs[
-            predict_conf >= thresholds[ii],:]
+        predict_idx = (predict_conf >= thresholds[ii])
+        predict_locs_iter = predict_locs[predict_idx,:]
+        if predict_lbls is not None:
+            predict_lbls_iter = predict_lbls[predict_idx]
+
         mm = obj_pr(predict_locs_iter, groundtruth_locs,
-                    dist_thresh, allow_mult=allow_mult)
+                    dist_thresh,
+                    predict_lbls_iter, groundtruth_lbls,
+                    allow_mult=allow_mult)
         num_tp[  ii] = mm.num_tp
         tot_pred[ii] = mm.tot_pred
         tot_gt[  ii] = mm.tot_gt
@@ -402,13 +418,28 @@ def aggregate_pr(results):
                        pp=pp, rr=rr, match=None)
     return result
 
+def _get_labels(seg, tt):
+    tt_ind = tt['locs'].astype(int)
+    return seg[tt_ind[:,2],tt_ind[:,1],tt_ind[:,0]]
+
 def _evaluate_substacks_worker(pred, obj_min_dist, smoothing_sigma,
                                volume_offset, buffer_sz,
-                               json_fn, thds, allow_mult, qq):
+                               json_fn, thds, seg_fn,
+                               allow_mult, qq):
     out  = voxel2obj(pred, obj_min_dist, smoothing_sigma,
                      volume_offset, buffer_sz)
     gt   = fplsynapses.load_from_json(json_fn, pred.shape, buffer_sz)
-    rr   = obj_pr_curve(out, gt, obj_min_dist, thds, allow_mult=allow_mult)
+
+    lbls_pd = None
+    lbls_gt = None
+    if seg_fn is not None:
+        seg = h5py.File(seg_fn, 'r')['/main'][:]
+        lbls_pd = _get_labels(seg, out)
+        lbls_gt = _get_labels(seg, gt)
+
+    rr   = obj_pr_curve(out, gt, obj_min_dist, thds,
+                        lbls_pd, lbls_gt,
+                        allow_mult=allow_mult)
 
     qq.put({json_fn: rr})
 
@@ -421,10 +452,15 @@ def evaluate_substacks(network, substacks, thds,
     oo  = {}
     for ss in substacks:
         pred = network.infer(ss[0])
+        if len(ss)<3:
+            seg_fn = None
+        else:
+            seg_fn = ss[2]
         pp = multiprocessing.Process(
             target=_evaluate_substacks_worker,
             args=(pred, obj_min_dist, smoothing_sigma,
-                  volume_offset, buffer_sz, ss[1], thds, allow_mult, qq))
+                  volume_offset, buffer_sz, ss[1], thds, seg_fn,
+                  allow_mult, qq))
         pps.append(pp)
         pp.start()
 
