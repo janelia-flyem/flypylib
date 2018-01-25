@@ -9,6 +9,7 @@
 from flypylib import fplutils, fplsynapses, fplnetwork
 from diced import DicedStore, DicedException
 from libdvid import DVIDNodeService, ConnectionMethod, DVIDException
+import z5py
 import numpy as np
 import h5py
 from scipy import ndimage
@@ -853,7 +854,7 @@ def full_roi_inference(data_source, dvid_uuid, dvid_roi,
         if not os.path.isdir(norm_dir):
             raise
 
-    if data_source[:5] == 'gs://' or roi_force_file: # Always when using a DICED google bucket
+    if data_source[:5] == 'n5://' or 'gs://' or roi_force_file: # Always when using a DICED google bucket
         has_dvid_roi = False
         roi = roi_from_txt(dvid_roi)
     else:
@@ -945,6 +946,8 @@ def fri_get_image_generator(get_image_args, qq):
     dvid_uuid       = get_image_args[0][2]
     instance_name   = get_image_args[0][7]
 
+    using_diced = False
+    using_n5 = False
     if dvid_server[:5] == 'gs://': # DICED google bucket
         using_diced = True
         if dvid_server.find(',')>=0:
@@ -954,14 +957,17 @@ def fri_get_image_generator(get_image_args, qq):
 
         repo = store.open_repo(uuid=dvid_uuid)
         dvid_node = repo.get_array(instance_name)
+    elif dvid_server[:5] == 'n5://':
+        using_n5 = True
+        dvid_node = z5py.File(dvid_server[5:])['s0']
     else:
-        using_diced = False
         dvid_node = DVIDNodeService(dvid_server, dvid_uuid,
                                     'fpl','fpl')
     for gg in get_image_args:
         while qq.qsize() >= 2:
             time.sleep(10)
-        qq.put(fri_get_image(gg, dvid_node, using_diced, instance_name))
+        qq.put(fri_get_image(gg, dvid_node, using_diced or using_n5,
+                             instance_name))
 
     if using_diced:
         store._shutdown_store()
@@ -988,10 +994,25 @@ def fri_get_image(substack_info, dvid_node, using_diced, instance_name='grayscal
     if using_diced:
         while True:
             try:
-                image = dvid_node[
-                    image_offset[0]:(image_offset[0]+image_sz),
-                    image_offset[1]:(image_offset[1]+image_sz),
-                    image_offset[2]:(image_offset[2]+image_sz)]
+                image = np.zeros( (image_sz,image_sz,image_sz),
+                                  'uint8')
+                rs_image_offset = np.maximum(
+                    image_offset, 0)
+                rs_image_bound  = np.minimum(
+                    np.asarray(image_offset)+image_sz,
+                    dvid_node.shape)
+
+                image[
+                    (rs_image_offset[0]-image_offset[0]):
+                    (rs_image_bound[0] -image_offset[0]),
+                    (rs_image_offset[1]-image_offset[1]):
+                    (rs_image_bound[1] -image_offset[1]),
+                    (rs_image_offset[2]-image_offset[2]):
+                    (rs_image_bound[2] -image_offset[2]
+                    )] = dvid_node[
+                        rs_image_offset[0]:rs_image_bound[0],
+                        rs_image_offset[1]:rs_image_bound[1],
+                        rs_image_offset[2]:rs_image_bound[2]]
             except (DicedException,DVIDException) as e:
                 print(e)
                 time.sleep(150)
