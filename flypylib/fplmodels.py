@@ -14,6 +14,7 @@ from tensorflow.python.ops import nn
 from tensorflow.python.ops import clip_ops
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import nn
+import tensorflow as tf
 import math
 import keras.backend as K
 import numpy as np
@@ -40,6 +41,13 @@ def masked_binary_crossentropy(y_true, y_pred):
     mask = K.cast(K.not_equal(y_true, 2), K.floatx())
     return K.mean(K.binary_crossentropy(y_pred * mask,
                                         y_true * mask), axis=-1)
+
+def masked_focal_loss(y_true, y_pred):
+    gamma = 2
+    alpha = 1#0.25
+    pt = tf.where(tf.equal(y_true, 1), y_pred, 1 - y_pred)
+    mask = K.cast(K.less(y_true, 2), K.floatx())
+    return -K.sum(alpha * mask * K.pow(1. - pt, gamma) * K.log(pt+K.epsilon()), axis=-1)
 
 def lb0l1err(y_true, y_pred):
     mask = K.cast(K.equal(y_true, 0), K.floatx())
@@ -289,7 +297,7 @@ def unet_like2(in_sz=24):
     predictions = Conv3D(1, (1, 1, 1), activation='sigmoid', use_bias=False)(conv5) # 6x6x6
 
     model = Model(inputs=inputs, outputs=predictions)
-    compile_args = {'loss': masked_binary_crossentropy,
+    compile_args = {'loss': masked_focal_loss, #masked_binary_crossentropy,
                     'optimizer': 'adam',
                     'metrics': [masked_accuracy,
                                 lb0l1err, lb1l1err]}
