@@ -619,7 +619,8 @@ def gen_volume(train_data, context_sz, batch_sz, ratio):
         yield data, labels
         #train_idx = (train_idx + 1) % n_train
 
-def gen_volume2(train_data, context_sz, batch_sz, ratio):
+def gen_volume2(train_data, context_sz, batch_sz, ratio,
+                noise_aug=[0,0]):
     """generator function that yields training batches
 
     extract training patches and labels for training with keras
@@ -743,10 +744,13 @@ def gen_volume2(train_data, context_sz, batch_sz, ratio):
                 xx_ii = locs[label_idx][1][locs_idx]
                 yy_ii = locs[label_idx][2][locs_idx]
                 zz_ii = locs[label_idx][3][locs_idx]
-                data[example_idx,:,:,:,0] = im[
-                    xx_ii-context_rr[0]:xx_ii+context_rr[0],
-                    yy_ii-context_rr[1]:yy_ii+context_rr[1],
-                    zz_ii-context_rr[2]:zz_ii+context_rr[2]]
+                data[example_idx,:,:,:,0] = (
+                    (noise_aug[1]+1)*np.random.randn() *
+                    im[
+                        xx_ii-context_rr[0]:xx_ii+context_rr[0],
+                        yy_ii-context_rr[1]:yy_ii+context_rr[1],
+                        zz_ii-context_rr[2]:zz_ii+context_rr[2]]
+                    ) + noise_aug[0]*np.random.randn()
                 labels[example_idx, :, :, :, 0] = ll[
                     xx_ii-out_rr[0]:xx_ii+out_rr[0],
                     yy_ii-out_rr[1]:yy_ii+out_rr[1],
