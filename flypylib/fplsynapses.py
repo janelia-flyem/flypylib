@@ -1,6 +1,7 @@
 """functions for working with synapse data, json, dvid """
 
 from flypylib import fplutils
+from flyem_syn_eval import eval
 from libdvid import DVIDNodeService, ConnectionMethod, DVIDConnection
 from libdvid._dvid_python import DVIDException
 import numpy as np
@@ -28,6 +29,8 @@ def load_from_json(fn, vol_sz=None, buffer=None):
             locs.append(syn['T-bar']['location'])
             conf.append(syn['T-bar']['confidence'])
     elif data is not None: # assume dvid format
+        if len(data)==1 and isinstance(data[0],list):
+            data = data[0]
         for syn in data:
             if syn['Kind'] != 'PreSyn':
                 continue
@@ -288,3 +291,59 @@ def write_labels_mask(tbars, roi_mask, radius_use, radius_ign,
                       dtype='uint8', compression='gzip')
     hh['/main'][:] = mask
     hh.close()
+
+
+def delete_tbar_psds(dvid_node, dvid_annot, coord):
+    syn_json = dvid_node.custom_request(
+        '%s/elements/1_1_1/%d_%d_%d' %
+        (dvid_annot, coord[0], coord[1], coord[2]),
+        None, ConnectionMethod.GET)
+
+    assert syn_json != b'null', 'no T-bar at location'
+
+    syn = json.loads(syn_json.decode())[0]
+
+    if 'Rels' in syn:
+        for psd in syn['Rels']:
+            dvid_node.custom_request('%s/element/%d_%d_%d' % (
+                dvid_annot,
+                psd['To'][0], psd['To'][1], psd['To'][2]),
+                                     None, ConnectionMethod.DELETE)
+
+    dvid_node.custom_request('%s/element/%d_%d_%d' % (
+        dvid_annot, syn['Pos'][0], syn['Pos'][1], syn['Pos'][2]),
+                             None, ConnectionMethod.DELETE)
+
+def rm_tbar_multi_pred(tbars_in, dvid_node, segm_name,
+                       neighbor_thresh=30):
+    tbars_copy = eval.Tbars(tbars_in['locs'],tbars_in['conf'])
+    ll = eval.get_labels(dvid_node, segm_name, tbars_copy)
+
+    pos = tbars_in['locs']
+
+    dists = np.sqrt( (
+        (pos.reshape((-1,1,3)) - pos.reshape((1,-1,3)))**2).sum(
+            axis=2) )
+
+    has_neighbor = np.sum( (dists>0) & (dists<neighbor_thresh),
+                           axis=1 )
+    tt_idx = np.argsort( -tbars_in['conf'] )
+
+    rm_idx = np.zeros( tt_idx.shape, 'bool' )
+
+    for ii in tt_idx:
+        if rm_idx[ii]:
+            continue
+        if not has_neighbor[ii]:
+            continue
+
+        candidates = (
+            (dists[ii,:]>0) & (dists[ii,:]<neighbor_thresh) &
+            (ll == ll[ii]) &
+            (tbars_in['conf'] < tbars_in['conf'][ii]) )
+
+        jj = np.nonzero(candidates)[0]
+
+        rm_idx[jj] = True
+
+    return rm_idx
