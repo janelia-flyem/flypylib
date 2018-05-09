@@ -209,9 +209,9 @@ def voxel2obj(pred, obj_min_dist, smoothing_sigma,
                           np.any(obj_pred <  min_bound, 1).nonzero(),
                           axis=0)
     max_bound = np.asarray([[
-        pred_sz[0]-buffer_sz[0],
+        pred_sz[2]-buffer_sz[0],
         pred_sz[1]-buffer_sz[1],
-        pred_sz[2]-buffer_sz[2], np.inf ]])
+        pred_sz[0]-buffer_sz[2], np.inf ]])
     obj_pred  = np.delete(obj_pred,
                           np.any(obj_pred >= max_bound, 1).nonzero(),
                           axis=0)
@@ -746,7 +746,7 @@ def gen_volume2(train_data, context_sz, batch_sz, ratio,
                 yy_ii = locs[label_idx][2][locs_idx]
                 zz_ii = locs[label_idx][3][locs_idx]
                 data[example_idx,:,:,:,0] = (
-                    (noise_aug[1]+1)*np.random.randn() *
+                    ((noise_aug[1]*np.random.randn())+1.) *
                     im[
                         xx_ii-context_rr[0]:xx_ii+context_rr[0],
                         yy_ii-context_rr[1]:yy_ii+context_rr[1],
@@ -781,7 +781,7 @@ def gen_volume2(train_data, context_sz, batch_sz, ratio,
                     labels[ii,:,:,:,0] = np.flipud(
                         labels[ii,:,:,:,0])
 
-            yield data, labels
+            yield data.copy(), labels.copy()
             #train_idx = (train_idx + 1) % n_train
 
 def write_sampling_weights(train_data, network, fn_prefix,
