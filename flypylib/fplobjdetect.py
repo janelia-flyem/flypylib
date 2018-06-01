@@ -130,7 +130,9 @@ def gen_batches(train_data, context_sz, batch_sz, is_mask=False):
         train_idx = (train_idx + 1) % n_train
 
 def voxel2obj(pred, obj_min_dist, smoothing_sigma,
-              volume_offset=(0,0,0), buffer_sz=0, thd=0):
+              volume_offset=(0,0,0), buffer_sz=0, thd=0,
+              seg=None, seg_dilate=None, seg_sz_thd=None,
+              seg_force=None):
     """convert voxel-wise predictions to object predictions
 
     apply smoothing and non-maxima suppression to dense voxel-wise
@@ -156,6 +158,12 @@ def voxel2obj(pred, obj_min_dist, smoothing_sigma,
     pred_sz = pred.shape
     pred    = np.pad(pred, obj_min_dist, 'constant')
 
+    if seg is not None:
+        if isinstance(seg, str):
+            seg = h5py.File(seg,'r')
+            seg = seg['/main'][:]
+        seg = np.pad(seg, obj_min_dist, 'constant')
+
     pred = ndimage.filters.gaussian_filter(
         pred, smoothing_sigma, truncate=2.0)
 
@@ -166,6 +174,12 @@ def voxel2obj(pred, obj_min_dist, smoothing_sigma,
     pred[:,-obj_min_dist:,:] = 0
     pred[:,:,-obj_min_dist:] = 0
 
+    if seg_sz_thd is not None:
+        all_seg_ids = np.unique(seg, return_counts=True)
+        for ii,cc in enumerate(all_seg_ids[1]):
+            if cc < seg_sz_thd:
+                pred[seg==all_seg_ids[0][ii]] = False
+
     thresh = np.maximum(np.percentile(pred,97), thd)
     locs   = (pred > thresh).nonzero()
     inds   = np.ravel_multi_index(locs, pred.shape)
@@ -174,6 +188,12 @@ def voxel2obj(pred, obj_min_dist, smoothing_sigma,
     pred_flat.shape = (-1)
 
     dist_flt = np.logical_not(fplutils.set_filter(obj_min_dist))
+    dist_flt_seg = dist_flt.copy()
+    if seg_force:
+        dist_flt_seg_cn = np.logical_not(
+            np.pad(fplutils.set_filter(seg_force),
+                   obj_min_dist - seg_force, 'constant'))
+
     is_valid = np.ones( pred.shape, dtype='bool' )
     is_valid_flat = is_valid.view()
     is_valid_flat.shape = (-1)
@@ -190,9 +210,22 @@ def voxel2obj(pred, obj_min_dist, smoothing_sigma,
         zz,yy,xx = np.unravel_index(inds[max_ind], pred.shape)
         obj_pred.append([xx,yy,zz,max_val])
 
+        if seg is not None:
+            seg_id = seg[zz,yy,xx]
+            dist_flt_seg = seg[
+                zz-obj_min_dist:zz+obj_min_dist+1,
+                yy-obj_min_dist:yy+obj_min_dist+1,
+                xx-obj_min_dist:xx+obj_min_dist+1] == seg_id
+            if seg_dilate is not None:
+                dist_flt_seg = ndimage.morphology.binary_dilation(
+                    dist_flt_seg, iterations=seg_dilate)
+            dist_flt_seg = np.logical_not(dist_flt_seg) | dist_flt
+            if seg_force:
+                dist_flt_seg = dist_flt_seg & dist_flt_seg_cn
+
         is_valid[zz-obj_min_dist:zz+obj_min_dist+1,
                  yy-obj_min_dist:yy+obj_min_dist+1,
-                 xx-obj_min_dist:xx+obj_min_dist+1] &= dist_flt
+                 xx-obj_min_dist:xx+obj_min_dist+1] &= dist_flt_seg
 
         inds = np.delete(inds, np.logical_not(
             is_valid_flat[inds]).nonzero())
@@ -363,9 +396,9 @@ def obj_pr_curve(predict, groundtruth, dist_thresh, thresholds,
     """
 
     if(isinstance(predict,str)):
-        predict = obj_load_from_json(predict)
+        predict = fplsynapses.load_from_json(predict)
     if(isinstance(groundtruth,str)):
-        groundtruth = obj_load_from_json(groundtruth)
+        groundtruth = fplsynapses.load_from_json(groundtruth)
 
     predict_locs     = predict['locs']
     predict_conf     = predict['conf']
