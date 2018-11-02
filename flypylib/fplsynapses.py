@@ -6,7 +6,7 @@ from libdvid import DVIDNodeService, ConnectionMethod, DVIDConnection
 from libdvid._dvid_python import DVIDException
 import numpy as np
 import h5py
-import json, os
+import json, os, time
 
 def load_from_json(fn, vol_sz=None, buffer=None):
     """read synapse data from json file
@@ -21,6 +21,7 @@ def load_from_json(fn, vol_sz=None, buffer=None):
 
     locs = []
     conf = []
+    err  = []
 
     if((isinstance(data, dict) and
         'data' in data.keys())): # Raveler format
@@ -40,11 +41,17 @@ def load_from_json(fn, vol_sz=None, buffer=None):
             else:
                 cc = 1.0
 
+            if 'err' in syn['Prop']:
+                err.append(float(syn['Prop']['err']))
+            else:
+                err.append(None)
+
             locs.append(syn['Pos'])
             conf.append(cc)
 
     locs  = np.asarray(locs)
     conf  = np.asarray(conf)
+    err   = np.asarray(err)
 
     if locs.size > 0 and buffer is not None and buffer != 0:
         assert vol_sz is not None, \
@@ -65,18 +72,22 @@ def load_from_json(fn, vol_sz=None, buffer=None):
         locs = np.delete(locs, idx, axis=0)
         conf = np.delete(conf, idx, axis=0)
 
-    tbars = { 'locs': locs, 'conf': conf }
+    tbars = { 'locs': locs, 'conf': conf, 'err': err }
     return tbars
 
-def tbars_to_json_format(tbars_np, json_file=None):
+def tbars_to_json_format(tbars_np, json_file=None, user_name='$fpl',
+                         labels=None):
     tbars_json = []
     locs = tbars_np['locs']
     conf = tbars_np['conf']
     for ii in np.arange(conf.size):
-        props = { 'conf' : '%.03f' % conf[ii] }
+        props = { 'conf' : '%.03f' % conf[ii],
+                  'user' : user_name }
         tt = { 'Kind': 'PreSyn',
                'Pos' : locs[ii,:].astype('int').tolist(),
                'Prop': props }
+        if labels is not None:
+            tt['body ID'] = str(labels[ii])
         tbars_json.append(tt)
 
     if json_file is not None: # write out to file
@@ -116,10 +127,15 @@ def tbars_push_dvid(tbars_json, dvid_server, dvid_uuid, dvid_annot):
             '/repo/%s/instance' % dvid_uuid,
             ConnectionMethod.POST, post_json.encode('utf-8'))
 
-    data = json.dumps(tbars_json)
-    oo = dvid_node.custom_request('%s/elements' % dvid_annot,
-                                  data.encode('utf-8'),
-                                  ConnectionMethod.POST)
+    num_at_once = 100000
+    n_tot       = len(tbars_json)
+    for ii in range(0, n_tot, num_at_once):
+        jj = np.minimum(ii+num_at_once, n_tot)
+        data = json.dumps(tbars_json[ii:jj])
+        oo = dvid_node.custom_request('%s/elements' % dvid_annot,
+                                      data.encode('utf-8'),
+                                      ConnectionMethod.POST)
+
 
 def roi_to_substacks(dvid_server, dvid_uuid, dvid_roi,
                      dvid_annotations, partition_size,
@@ -314,10 +330,58 @@ def delete_tbar_psds(dvid_node, dvid_annot, coord):
         dvid_annot, syn['Pos'][0], syn['Pos'][1], syn['Pos'][2]),
                              None, ConnectionMethod.DELETE)
 
+def mv_annotation(dvid_node, dvid_annot, coord_from, coord_to,
+                  retry=False):
+    syn_json = dvid_node.custom_request(
+        '%s/elements/1_1_1/%d_%d_%d' %
+        (dvid_annot, coord_from[0], coord_from[1], coord_from[2]),
+        None, ConnectionMethod.GET)
+    assert syn_json != b'null', 'no annotation at from location'
+
+    syn_json = dvid_node.custom_request(
+        '%s/elements/1_1_1/%d_%d_%d' %
+        (dvid_annot, coord_to[0], coord_to[1], coord_to[2]),
+        None, ConnectionMethod.GET)
+
+    if not retry:
+        assert syn_json == b'null', 'existing annotation at to location'
+    elif syn_json != b'null':
+        for xx in range(2,10):
+            syn_json = dvid_node.custom_request(
+                '%s/elements/1_1_1/%d_%d_%d' %
+                (dvid_annot, coord_to[0]+xx, coord_to[1], coord_to[2]),
+                None, ConnectionMethod.GET)
+            if syn_json == b'null':
+                coord_to[0] += xx
+                break
+            syn_json = dvid_node.custom_request(
+                '%s/elements/1_1_1/%d_%d_%d' %
+                (dvid_annot, coord_to[0]-xx, coord_to[1], coord_to[2]),
+                None, ConnectionMethod.GET)
+            if syn_json == b'null':
+                coord_to[0] -= xx
+                break
+
+    syn_json = dvid_node.custom_request(
+        '%s/elements/1_1_1/%d_%d_%d' %
+        (dvid_annot, coord_to[0], coord_to[1], coord_to[2]),
+        None, ConnectionMethod.GET)
+
+    assert syn_json == b'null', 'existing annotation at to location'
+
+    dvid_node.custom_request(
+        '%s/move/%d_%d_%d/%d_%d_%d' %
+        (dvid_annot, coord_from[0], coord_from[1], coord_from[2],
+         coord_to[0], coord_to[1], coord_to[2]),
+        None, ConnectionMethod.POST)
+
 def rm_tbar_multi_pred(tbars_in, dvid_node, segm_name,
                        neighbor_thresh=30):
     tbars_copy = eval.Tbars(tbars_in['locs'],tbars_in['conf'])
-    ll = eval.get_labels(dvid_node, segm_name, tbars_copy)
+    if segm_name:
+        ll = eval.get_labels(dvid_node, segm_name, tbars_copy)
+    else:
+        ll = np.zeros(tbars_in['conf'].shape)
 
     pos = tbars_in['locs']
 
@@ -330,6 +394,8 @@ def rm_tbar_multi_pred(tbars_in, dvid_node, segm_name,
     tt_idx = np.argsort( -tbars_in['conf'] )
 
     rm_idx = np.zeros( tt_idx.shape, 'bool' )
+    mv_idx = np.zeros( tt_idx.shape, 'bool' )
+    mv_loc = np.zeros( pos.shape, 'int' )
 
     for ii in tt_idx:
         if rm_idx[ii]:
@@ -340,10 +406,122 @@ def rm_tbar_multi_pred(tbars_in, dvid_node, segm_name,
         candidates = (
             (dists[ii,:]>0) & (dists[ii,:]<neighbor_thresh) &
             (ll == ll[ii]) &
-            (tbars_in['conf'] < tbars_in['conf'][ii]) )
+            (np.logical_not(rm_idx)) )
 
         jj = np.nonzero(candidates)[0]
 
-        rm_idx[jj] = True
+        if jj.size > 0:
+            mv_idx[ii] = True
 
-    return rm_idx
+            old_loc = pos[ii,:]
+            candidates[ii] = True
+            updates = 0
+            while True:
+                # new location by interpolation
+                ww = tbars_in['conf'] * candidates
+                ww = ww / np.sum(ww)
+
+                mv_loc[ii,:] = np.round(
+                    np.sum( ww.reshape( (-1,1) ) * pos, axis=0) )
+                if np.array_equal(old_loc, mv_loc[ii,:]):
+                    break
+
+                updates += 1
+
+                old_loc = mv_loc[ii,:].copy()
+                new_dists = np.sqrt( np.sum(
+                    (pos - mv_loc[ii,:])**2, axis=1) )
+
+                candidates = (
+                    (new_dists < neighbor_thresh) &
+                    (ll == ll[ii]) &
+                    (np.logical_not(rm_idx)) )
+
+            jj = np.nonzero(candidates)[0]
+            rm_idx[jj] = True
+
+            # if updates > 1:
+            #     print(pos[jj,:])
+            #     print(old_loc)
+
+    rm_idx[mv_idx] = False
+
+    return rm_idx, mv_idx, mv_loc
+
+
+def get_labels(dvid_node, segm_name, tbars_in, get_supervoxels=False):
+    n_tot = tbars_in['conf'].shape[0]
+    n_at_once = 3000
+    ll = np.zeros(n_tot,'uint64')
+
+    sv_str = ''
+    if get_supervoxels:
+        sv_str = '?supervoxels=true'
+
+    for ii in range(0,n_tot,n_at_once):
+        if ii>0:
+            print('[{}]'.format(ii), end='', flush=True)
+        jj = np.minimum(ii+n_at_once, n_tot)
+        while True:
+            try:
+                ll_iter = dvid_node.custom_request(
+                    '%s/labels%s' % (segm_name, sv_str),
+                    json.dumps(
+                        tbars_in['locs'][ii:jj,:].round().astype('int'
+                        ).tolist()).encode(),
+                    ConnectionMethod.GET)
+                break
+            except DVIDException as e:
+                time.sleep(60)
+        ll_iter = json.loads(ll_iter.decode())
+        ll[ii:jj] = np.asarray(ll_iter)
+
+    if n_tot>n_at_once:
+        print()
+    return ll
+
+
+def set_syncs(dvid_server, dvid_uuid, dvid_annot,
+              dvid_segm=None, dvid_labelsz=None):
+    dvid_node = DVIDNodeService(dvid_server, dvid_uuid,
+                                os.getenv('USER'), 'fpl')
+    dvid_conn = DVIDConnection(dvid_server, os.getenv('USER'), 'fpl')
+
+    # create annotation if necessary
+    try:
+        dvid_node.custom_request('%s/info' % dvid_annot,
+                                 None, ConnectionMethod.GET)
+    except DVIDException as e:
+        post_json = json.dumps({
+            'typename': 'annotation',
+            'dataname': dvid_annot})
+        status, body, error_message = dvid_conn.make_request(
+            '/repo/%s/instance' % dvid_uuid,
+            ConnectionMethod.POST, post_json.encode('utf-8'))
+
+    if dvid_labelsz is not None:
+        # create labelsz if necessary
+        try:
+            dvid_node.custom_request('%s/info' % dvid_labelsz,
+                                     None, ConnectionMethod.GET)
+        except DVIDException as e:
+            post_json = json.dumps({
+                'typename': 'labelsz',
+                'dataname': dvid_labelsz})
+            status, body, error_message = dvid_conn.make_request(
+                '/repo/%s/instance' % dvid_uuid,
+                ConnectionMethod.POST, post_json.encode('utf-8'))
+
+    # sync synapses to segmentation
+    if dvid_segm is not None:
+        syn_sync_json = json.dumps({'sync': dvid_segm})
+        dvid_node.custom_request('%s/sync' % dvid_annot,
+                                 syn_sync_json.encode('utf-8'),
+                                 ConnectionMethod.POST)
+
+    # sync labelsz to synapses
+    if dvid_labelsz is not None:
+        lsz_sync_json = json.dumps({'sync': dvid_annot})
+        dvid_node.custom_request('%s/sync' % dvid_labelsz,
+                                 lsz_sync_json.encode('utf-8'),
+                                 ConnectionMethod.POST)
