@@ -303,6 +303,170 @@ def unet_like2(in_sz=24):
                                 lb0l1err, lb1l1err]}
     return model, (24, 9, 1), 100, compile_args
 
+def unet_like3(in_sz=32):
+    '''
+    construct a u-net style network
+    '''
+    in_sz = fplutils.to3d(in_sz)
+    in_sz = in_sz + (1,)
+
+    inputs = Input(shape=in_sz) # 32^2
+
+    # down-sample
+    conv1 = Conv3D(32, (3, 3, 3), use_bias=False)(inputs) # 30
+    conv1 = _bn_relu(conv1)
+    conv1 = Conv3D(32, (3, 3, 3), use_bias=False)(conv1) # 28
+    conv1 = _bn_relu(conv1)
+    pool1 = MaxPooling3D(pool_size=(2, 2, 2))(conv1) # 14
+
+    conv2 = Conv3D(64, (3, 3, 3), use_bias=False)(pool1) # 12
+    conv2 = _bn_relu(conv2)
+    conv2 = Conv3D(64, (3, 3, 3), use_bias=False)(conv2) # 10
+    conv2 = _bn_relu(conv2)
+    pool2 = MaxPooling3D(pool_size=(2, 2, 2))(conv2) # 5
+
+    conv3 = Conv3D(128, (3, 3, 3), use_bias=False)(pool2) # 3
+    conv3 = _bn_relu(conv3)
+    conv3 = Conv3D(128, (1, 1, 1), use_bias=False)(conv3) # 3
+    conv3 = _bn_relu(conv3)
+
+    # up-sample
+    crop_conv2 = Cropping3D(cropping=((2, 2), (2, 2), (2, 2)))(conv2)
+    up4 = concatenate([UpSampling3D(size=(2, 2, 2))(conv3), crop_conv2]) # 6
+    conv4 = Conv3D(64, (3, 3, 3), use_bias=False)(up4) # 4
+    conv4 = _bn_relu(conv4)
+    conv4 = Conv3D(64, (1, 1, 1), use_bias=False)(conv4) # 4
+    conv4 = _bn_relu(conv4)
+
+    crop_conv1 = Cropping3D(cropping=((10, 10), (10, 10), (10, 10)))(conv1)
+    up5 = concatenate([UpSampling3D(size=(2, 2, 2))(conv4), crop_conv1]) # 8x8x8
+    conv5 = Conv3D(32, (3, 3, 3), use_bias=False)(up5) # 6
+    conv5 = _bn_relu(conv5)
+    conv5 = Conv3D(32, (1, 1, 1), use_bias=False)(conv5) # 6
+    conv5 = _bn_relu(conv5)
+
+    predictions = Conv3D(1, (1, 1, 1), activation='sigmoid', use_bias=False)(conv5) # 6
+
+    model = Model(inputs=inputs, outputs=predictions)
+    compile_args = {'loss': masked_focal_loss, #masked_binary_crossentropy,
+                    'optimizer': 'adam',
+                    'metrics': [masked_accuracy,
+                                lb0l1err, lb1l1err]}
+    return model, (32, 13, 1), 100, compile_args
+
+
+def unet_like4(in_sz=40):
+    '''
+    construct a u-net style network
+    '''
+    in_sz = fplutils.to3d(in_sz)
+    in_sz = in_sz + (1,)
+
+    inputs = Input(shape=in_sz) # 40^2
+
+    # down-sample
+    conv1 = Conv3D(32, (3, 3, 3), use_bias=False)(inputs) # 38
+    conv1 = _bn_relu(conv1)
+    conv1 = Conv3D(32, (3, 3, 3), use_bias=False)(conv1) # 36
+    conv1 = _bn_relu(conv1)
+    pool1 = MaxPooling3D(pool_size=(2, 2, 2))(conv1) # 18
+
+    conv2 = Conv3D(64, (3, 3, 3), use_bias=False)(pool1) # 16
+    conv2 = _bn_relu(conv2)
+    conv2 = Conv3D(64, (3, 3, 3), use_bias=False)(conv2) # 14
+    conv2 = _bn_relu(conv2)
+    pool2 = MaxPooling3D(pool_size=(2, 2, 2))(conv2) # 7
+
+    conv3 = Conv3D(128, (3, 3, 3), use_bias=False)(pool2) # 5
+    conv3 = _bn_relu(conv3)
+    conv3 = Conv3D(128, (3, 3, 3), use_bias=False)(conv3) # 3
+    conv3 = _bn_relu(conv3)
+
+    # up-sample
+    crop_conv2 = Cropping3D(cropping=((4, 4), (4, 4), (4, 4)))(conv2)
+    up4 = concatenate([UpSampling3D(size=(2, 2, 2))(conv3), crop_conv2]) # 6
+    conv4 = Conv3D(64, (3, 3, 3), use_bias=False)(up4) # 4
+    conv4 = _bn_relu(conv4)
+    conv4 = Conv3D(64, (1, 1, 1), use_bias=False)(conv4) # 4
+    conv4 = _bn_relu(conv4)
+
+    crop_conv1 = Cropping3D(cropping=((14, 14), (14, 14), (14, 14)))(conv1)
+    up5 = concatenate([UpSampling3D(size=(2, 2, 2))(conv4), crop_conv1]) # 8x8x8
+    conv5 = Conv3D(32, (3, 3, 3), use_bias=False)(up5) # 6
+    conv5 = _bn_relu(conv5)
+    conv5 = Conv3D(32, (1, 1, 1), use_bias=False)(conv5) # 6
+    conv5 = _bn_relu(conv5)
+
+    predictions = Conv3D(1, (1, 1, 1), activation='sigmoid', use_bias=False)(conv5) # 6
+
+    model = Model(inputs=inputs, outputs=predictions)
+    compile_args = {'loss': masked_focal_loss, #masked_binary_crossentropy,
+                    'optimizer': 'adam',
+                    'metrics': [masked_accuracy,
+                                lb0l1err, lb1l1err]}
+    return model, (40, 17, 1), 100, compile_args
+
+
+def unet_like4b(in_sz=40):
+    '''
+    construct a u-net style network
+    '''
+    in_sz = fplutils.to3d(in_sz)
+    in_sz = in_sz + (1,)
+
+    inputs = Input(shape=in_sz) # 40^2
+
+    # down-sample
+    conv1 = Conv3D(32, (3, 3, 3), use_bias=False)(inputs) # 38
+    conv1 = _bn_relu(conv1)
+    conv1 = Conv3D(32, (3, 3, 3), use_bias=False)(conv1) # 36
+    conv1 = _bn_relu(conv1)
+    pool1 = MaxPooling3D(pool_size=(2, 2, 2))(conv1) # 18
+
+    conv2 = Conv3D(64, (3, 3, 3), use_bias=False)(pool1) # 16
+    conv2 = _bn_relu(conv2)
+    conv2 = Conv3D(32, (1, 1, 1), use_bias=False)(conv2) # 14
+    conv2 = _bn_relu(conv2)
+    conv2 = Conv3D(64, (3, 3, 3), use_bias=False)(conv2) # 14
+    conv2 = _bn_relu(conv2)
+    pool2 = MaxPooling3D(pool_size=(2, 2, 2))(conv2) # 7
+
+    conv3 = Conv3D(48, (1, 1, 1), use_bias=False)(pool2) # 7
+    conv3 = _bn_relu(conv3)
+    conv3 = Conv3D(128, (3, 3, 3), use_bias=False)(conv3) # 5
+    conv3 = _bn_relu(conv3)
+    conv3 = Conv3D(48, (1, 1, 1), use_bias=False)(conv3) # 5
+    conv3 = _bn_relu(conv3)
+    conv3 = Conv3D(128, (3, 3, 3), use_bias=False)(conv3) # 3
+    conv3 = _bn_relu(conv3)
+    conv3 = Conv3D(48, (1, 1, 1), use_bias=False)(conv3) # 5
+    conv3 = _bn_relu(conv3)
+
+    # up-sample
+    crop_conv2 = Cropping3D(cropping=((4, 4), (4, 4), (4, 4)))(conv2)
+    up4 = concatenate([UpSampling3D(size=(2, 2, 2))(conv3), crop_conv2]) # 6
+    conv4 = Conv3D(64, (3, 3, 3), use_bias=False)(up4) # 4
+    conv4 = _bn_relu(conv4)
+    conv4 = Conv3D(64, (1, 1, 1), use_bias=False)(conv4) # 4
+    conv4 = _bn_relu(conv4)
+
+    crop_conv1 = Cropping3D(cropping=((14, 14), (14, 14), (14, 14)))(conv1)
+    up5 = concatenate([UpSampling3D(size=(2, 2, 2))(conv4), crop_conv1]) # 8x8x8
+    conv5 = Conv3D(32, (3, 3, 3), use_bias=False)(up5) # 6
+    conv5 = _bn_relu(conv5)
+    conv5 = Conv3D(32, (1, 1, 1), use_bias=False)(conv5) # 6
+    conv5 = _bn_relu(conv5)
+
+    predictions = Conv3D(1, (1, 1, 1), activation='sigmoid', use_bias=False)(conv5) # 6
+
+    model = Model(inputs=inputs, outputs=predictions)
+    compile_args = {'loss': masked_focal_loss, #masked_binary_crossentropy,
+                    'optimizer': 'adam',
+                    'metrics': [masked_accuracy,
+                                lb0l1err, lb1l1err]}
+    return model, (40, 17, 1), 100, compile_args
+
+
 def unet_like_vol(in_sz=62):
     """construct a u-net style network
     """
