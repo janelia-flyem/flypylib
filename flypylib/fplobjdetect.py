@@ -412,6 +412,7 @@ def obj_pr_curve(predict, groundtruth, dist_thresh, thresholds,
     rr       = np.zeros( (n_thd,) )
 
     predict_lbls_iter = None
+    match = None
 
     for ii in range(thresholds.size):
         predict_idx = (predict_conf >= thresholds[ii])
@@ -429,8 +430,11 @@ def obj_pr_curve(predict, groundtruth, dist_thresh, thresholds,
         pp[      ii] = mm.pp
         rr[      ii] = mm.rr
 
+        if match is None:
+            match = mm.match
+
     result = PR_Result(num_tp=num_tp, tot_pred=tot_pred, tot_gt=tot_gt,
-                       pp=pp, rr=rr, match=None)
+                       pp=pp, rr=rr, match=match)
     return result
 
 
@@ -841,7 +845,8 @@ def full_roi_inference(data_source, dvid_uuid, dvid_roi,
                        buffer_sz=35, partition_size=16,
                        local_cache_dir=None,
                        roi_force_file=False,
-                       instance_name='grayscale'):
+                       instance_name='grayscale',
+                       dvid_seg_info=None):
     """ Given a trained network and a data source, return predictions
         within the provided region. This also caches results to disk so
         subsequent calls might be faster.
@@ -918,6 +923,11 @@ def full_roi_inference(data_source, dvid_uuid, dvid_roi,
     print('already processed: %d' % num_processed)
     print('to process: %d' % len(fri_get_image_args))
 
+    dvid_seg_node = None
+    if dvid_seg_info is not None:
+        dvid_seg_node = DVIDNodeService(
+            dvid_seg_info[0], dvid_seg_info[1], 'fpl','fpl')
+
     n_done  = 0
     max_at_once = 1000
     fri_im_args_batch = []
@@ -937,11 +947,15 @@ def full_roi_inference(data_source, dvid_uuid, dvid_roi,
 
         for ii in range(len(bb)):
             ss = qq_pre.get()
-            pred = network.infer(ss[0])
+            if ss[0] is None:
+                pred = None
+            else:
+                pred = network.infer(ss[0])
+
             pp_obj = multiprocessing.Process(
                 target=fri_postprocess,
                 args=(pred, working_dir, obj_min_dist, smoothing_sigma,
-                      ss[1], buffer_sz, thd, qq_post))
+                      ss[1], buffer_sz, thd, qq_post, dvid_seg_node))
             pp_obj.start()
             n_done += 1
             sys.stdout.write('\r%d' % n_done)
@@ -996,6 +1010,7 @@ def fri_get_image_generator(get_image_args, qq):
     else:
         dvid_node = DVIDNodeService(dvid_server, dvid_uuid,
                                     'fpl','fpl')
+
     for gg in get_image_args:
         while qq.qsize() >= 2:
             time.sleep(10)
@@ -1005,7 +1020,8 @@ def fri_get_image_generator(get_image_args, qq):
     if using_diced:
         store._shutdown_store()
 
-def fri_get_image(substack_info, dvid_node, using_diced, instance_name='grayscale'):
+def fri_get_image(substack_info, dvid_node, using_diced,
+                  instance_name='grayscale'):
     substack        = substack_info[0]
     image_normalize = substack_info[3]
     buffer_sz       = substack_info[4]
@@ -1027,13 +1043,25 @@ def fri_get_image(substack_info, dvid_node, using_diced, instance_name='grayscal
     if using_diced:
         while True:
             try:
+                if isinstance(dvid_node, z5py.dataset.Dataset):
+                    full_size = dvid_node.shape
+                else:
+                    fs_tmp = dvid_node.get_extents()
+                    full_size = [
+                        fs_tmp[0].stop, fs_tmp[1].stop, fs_tmp[2].stop]
+
                 image = np.zeros( (image_sz,image_sz,image_sz),
                                   'uint8')
                 rs_image_offset = np.maximum(
                     image_offset, 0)
                 rs_image_bound  = np.minimum(
                     np.asarray(image_offset)+image_sz,
-                    dvid_node.shape)
+                    full_size)
+
+                if (rs_image_offset[0]>rs_image_bound[0] or
+                    rs_image_offset[1]>rs_image_bound[1] or
+                    rs_image_offset[2]>rs_image_bound[2]):
+                    return (None, substack)
 
                 image[
                     (rs_image_offset[0]-image_offset[0]):
@@ -1100,13 +1128,35 @@ def fri_get_image(substack_info, dvid_node, using_diced, instance_name='grayscal
     return (image, substack)
 
 def fri_postprocess(pred, working_dir, obj_min_dist, smoothing_sigma,
-                    substack, buffer_sz, thd, qq):
-    out = voxel2obj(pred, obj_min_dist, smoothing_sigma,
-                    (substack.x - buffer_sz,
-                     substack.y - buffer_sz,
-                     substack.z - buffer_sz),
-                    buffer_sz, thd)
+                    substack, buffer_sz, thd, qq, dvid_seg_node):
     ff = fri_filename(working_dir, substack)
+    if pred is None:
+        out = {'locs': np.zeros((0,3)), 'conf': np.zeros(0)}
+        with open(ff, 'wb') as f_out:
+            pickle.dump(out, f_out)
+        qq.put(ff)
+        return
+
+    if dvid_seg_node is not None:
+        seg = dvid_seg_node.get_labels3D(
+            'segmentation', pred.shape,
+            [substack.z - buffer_sz,
+             substack.y - buffer_sz,
+             substack.x - buffer_sz])
+        out = voxel2obj(pred, obj_min_dist, smoothing_sigma,
+                        (substack.x - buffer_sz,
+                         substack.y - buffer_sz,
+                         substack.z - buffer_sz),
+                        buffer_sz, thd,
+                        seg=seg, seg_dilate=8,
+                        seg_sz_thd=5000, seg_force=10)
+    else:
+        out = voxel2obj(pred, obj_min_dist, smoothing_sigma,
+                        (substack.x - buffer_sz,
+                         substack.y - buffer_sz,
+                         substack.z - buffer_sz),
+                        buffer_sz, thd)
+
     with open(ff, 'wb') as f_out:
         pickle.dump(out, f_out)
     qq.put(ff)
