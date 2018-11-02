@@ -9,7 +9,8 @@ class ObjPredVisualizeErrors:
     def __init__(self, im, pd_voxel, gt,
                  obj_min_dist=27, smoothing_sigma=5,
                  volume_offset=(0,0,0), buffer_sz=15, allow_mult=False,
-                 print_offset=(0,0,0)):
+                 print_offset=None, seg=None, seg_dilate=None,
+                 obj_pred=None):
 
         if(isinstance(im, str)):
             im = h5py.File(im,'r')['/main'][:]
@@ -27,9 +28,13 @@ class ObjPredVisualizeErrors:
         self.pd_voxel = pd_voxel
         self.gt       = gt
 
-        self.pd       = fplobjdetect.voxel2obj(
-            pd_voxel, obj_min_dist, smoothing_sigma,
-            volume_offset, buffer_sz)
+        if obj_pred is not None:
+            self.pd = obj_pred
+        else:
+            self.pd       = fplobjdetect.voxel2obj(
+                pd_voxel, obj_min_dist, smoothing_sigma,
+                volume_offset, buffer_sz,
+                seg=seg, seg_dilate=seg_dilate)
 
         self.pd_vs    = ndimage.filters.gaussian_filter(
             self.pd_voxel, smoothing_sigma, truncate=2.0)
@@ -61,7 +66,11 @@ class ObjPredVisualizeErrors:
         self.z        = 0
         self.moved    = True
 
-        self.print_offset = np.asarray(print_offset)-buffer_sz
+        self.volume_offset = volume_offset
+        if print_offset:
+            self.print_offset = np.asarray(print_offset)-buffer_sz
+        else:
+            self.print_offset = (0,0,0)
 
         fig = plt.figure()
         fig.canvas.mpl_connect('key_press_event', self.keypress)
@@ -83,9 +92,10 @@ class ObjPredVisualizeErrors:
                 self.pd_curr = self.pd_curr - 1
                 self.moved = True
         if(event.key=='up'):
-            self.z = min(self.z+1, self.pd_voxel.shape[0]-1)
+            self.z = min(self.z+1, self.volume_offset[2] +
+                         self.pd_voxel.shape[0] - 1)
         if(event.key=='down'):
-            self.z = max(self.z-1, 0)
+            self.z = max(self.z-1, self.volume_offset[2] + 0)
         if(event.key=='m'):
             self.mode = 1 - self.mode
             self.moved = True
@@ -99,9 +109,11 @@ class ObjPredVisualizeErrors:
                 self.z = self.gt['locs'][self.gt_idx[self.gt_curr],2]
 
                 score = self.pd_vs[
-                    self.z,
-                    self.gt['locs'][self.gt_idx[self.gt_curr],1],
-                    self.gt['locs'][self.gt_idx[self.gt_curr],0]]
+                    self.z - self.volume_offset[2],
+                    self.gt['locs'][self.gt_idx[self.gt_curr],1
+                    ] - self.volume_offset[1],
+                    self.gt['locs'][self.gt_idx[self.gt_curr],0
+                    ] - self.volume_offset[0]]
                 print('[gt %d/%d conf: %.03f score: %03f (%d,%d,%d)]' %
                       (self.gt_curr+1, self.n_gt,
                        self.gt_mconf[self.gt_idx[self.gt_curr]],
@@ -115,9 +127,11 @@ class ObjPredVisualizeErrors:
                 self.z = self.pd['locs'][self.pd_idx[self.pd_curr],2]
 
                 score = self.pd_vs[
-                    self.z,
-                    self.pd['locs'][self.pd_idx[self.pd_curr],1],
-                    self.pd['locs'][self.pd_idx[self.pd_curr],0]]
+                    self.z - self.volume_offset[2],
+                    self.pd['locs'][self.pd_idx[self.pd_curr],1
+                    ] - self.volume_offset[1],
+                    self.pd['locs'][self.pd_idx[self.pd_curr],0
+                    ] - self.volume_offset[0]]
                 print('[pd %d/%d matched: %d conf: %.03f score: %.03f (%d,%d,%d)]' %
                       (self.pd_curr+1, self.n_pd,
                        self.pd_match[self.pd_idx[self.pd_curr]],
@@ -138,21 +152,24 @@ class ObjPredVisualizeErrors:
         else:
             xx = self.pd['locs'][self.pd_idx[self.pd_curr],0]
             yy = self.pd['locs'][self.pd_idx[self.pd_curr],1]
-        xx = int(xx)
-        yy = int(yy)
+        xx = int(xx - self.volume_offset[0])
+        yy = int(yy - self.volume_offset[1])
         oo = 0.75
-        im_slice = oo*self.im[self.z,
+        im_slice = oo*self.im[self.z - self.volume_offset[2],
                                yy:(yy+2*self.radius+1),
                                xx:(xx+2*self.radius+1)]
         im_slice = np.repeat(im_slice.reshape(im_slice.shape + (1,)),
                              3, axis=2)
-        pd_slice = self.pd_voxel[self.z,
+        pd_slice = self.pd_voxel[self.z - self.volume_offset[2],
                                  yy:(yy+2*self.radius+1),
                                  xx:(xx+2*self.radius+1)]
 
         if self.overlay:
             im_slice[:,:,0] += (1-oo) * pd_slice
         plt.imshow(im_slice)
+
+        xx += self.volume_offset[0]
+        yy += self.volume_offset[1]
 
         idx = np.logical_and(
             np.logical_and(
