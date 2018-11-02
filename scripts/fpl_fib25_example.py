@@ -11,7 +11,7 @@ import urllib, os
 # fpl_fib25_example.py
 #
 # This is a test program that uses publically available data to demonstrate
-# the use of the flypylib library. 
+# the use of the flypylib library.
 
 # number of available gpus on our system
 n_gpu = 4
@@ -21,7 +21,7 @@ epochs = 5
 epoch_steps = 1000
 
 # specify directory for data. Right now this uses a relative path, so it'll be
-# under where the program is run. 
+# under where the program is run.
 data_dir = 'fib25_data'
 # We'll use this to store data about where we're getting our data from
 dsource = {
@@ -159,7 +159,9 @@ def main():
     if n_gpu > 1:
         network.make_train_parallel(n_gpu, batch_size, train_shape)
 
-    network.train(generator, epoch_steps, epochs)
+    network.train(generator, epoch_steps, epochs,
+                  '%s/log.csv' % data_dir,
+                  '%s/epoch' % data_dir)
     filename = '%s/net.p' % data_dir
     network.save_network(filename)
 

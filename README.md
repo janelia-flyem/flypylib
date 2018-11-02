@@ -8,11 +8,9 @@ This code provides an implementation of a system for object detection
 
 Fully-Automatic Synapse Prediction and Validation on a Large Data Set\
 Gary B. Huang, Louis K. Scheffer, Stephen M. Plaza\
-<https://arxiv.org/abs/1604.03075>, 2016
+Frontiers in Neural Circuits, Vol 12, 2018.
 
-The overall pipeline is the same as presented in the paper, but the
-underlying voxel prediction network has been improved and replaced
-with a U-Net style CNN.
+For PSD prediction, see [flymatlib](https://github.com/janelia-flyem/flymatlib#example-usage-for-psd-detection)
 
 ## installation
 
