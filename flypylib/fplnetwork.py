@@ -1,9 +1,20 @@
 from flypylib import fplutils, multi_gpu
 from keras.models import Model, load_model
 from keras.layers import UpSampling3D
+from keras.callbacks import CSVLogger, ModelCheckpoint, Callback
 import h5py
 import numpy as np
 import pickle
+
+class multi_gpu_callback(Callback):
+
+    def __init__(self, model, save_prefix):
+         self.model_to_save = model
+         self.save_prefix = save_prefix
+
+    def on_epoch_end(self, epoch, logs=None):
+        self.model_to_save.save(
+            '%s_%03d.h5' % (self.save_prefix, epoch))
 
 def get_custom_objects(compile_args):
     custom_objects = {}
@@ -98,9 +109,16 @@ class FplNetwork:
         self.infer_network.set_weights(
             self.train_single.get_weights())
 
-    def train(self, generator, steps_per_epoch, epochs):
+    def train(self, generator, steps_per_epoch, epochs,
+              log_file, save_filepath):
+
+        csv_logger = CSVLogger(log_file)
+        checkpoint = multi_gpu_callback(
+            self.train_single, save_filepath)
+        callbacks = [csv_logger, checkpoint]
+
         self.train_network.fit_generator(
-            generator, steps_per_epoch, epochs)
+            generator, steps_per_epoch, epochs, callbacks=callbacks)
         self._set_infer()
 
     def make_train_parallel(self, n_gpu, batch_size, input_shape):
